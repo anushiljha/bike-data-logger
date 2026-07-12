@@ -48,8 +48,8 @@ Read this file before making any code suggestions or edits.
 ## Where the project stands
 
 **Phase 0 (device prep): complete.**
-**Phase 1 (sensor logger app): Steps 1-4 of 10 done and verified. Step 5 (wire
-real GPS into the DB) next.**
+**Phase 1 (sensor logger app): Steps 1-5 of 10 done and verified. Step 6 (same
+pattern for sensors) next.**
 
 Full plan: `Bike_Data_Logger_Project_Plan.md`. Step-by-step build order:
 `BUILD_CHECKLIST_Phase1.md`.
@@ -96,8 +96,17 @@ Full plan: `Bike_Data_Logger_Project_Plan.md`. Step-by-step build order:
   wired in yet — that's Step 5. Added `androidx.lifecycle:lifecycle-runtime-ktx:2.6.2`
   for `lifecycleScope`; confirmed via manifest merge that it doesn't bump the
   minSdk floor past 21 (same class of check that got Room pinned to 2.7.2).
-- **Not yet started:** Step 5 onward (real GPS → DB, sensor logging table,
-  physical device, ride sessions, CSV export, first real ride).
+- **Step 5 (real GPS → DB) — done:** `btnInsert` now does one real
+  `getCurrentLocation()` fetch and inserts the result (replacing the
+  hardcoded lat/lon). New `btnStartLogging` button repeats that 6 times, 5
+  seconds apart (~30s total), via `lifecycleScope.launch { repeat(6) { ...;
+  delay(5000) } }`. Removed the Step 3 leftover (auto GPS-fetch-to-Logcat on
+  launch) since it was superseded by the real DB insert path — nothing later
+  in the checklist depended on it. Verified on emulator: two separate
+  "Start logging" runs each produced exactly 6 rows, 5 seconds apart, with
+  real fake-GPS coordinates.
+- **Not yet started:** Step 6 onward (sensor logging table, physical device,
+  ride sessions, CSV export, first real ride).
 
 ### Repo
 
