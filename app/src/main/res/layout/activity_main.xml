@@ -21,7 +21,16 @@
         android:id="@+id/btnInsert"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="Insert test row"
+        android:text="Insert one GPS point"
+        app:layout_constraintBottom_toTopOf="@id/btnStartLogging"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent" />
+
+    <Button
+        android:id="@+id/btnStartLogging"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Start logging"
         app:layout_constraintBottom_toTopOf="@id/btnQuery"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent" />
