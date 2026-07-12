@@ -116,11 +116,14 @@ Full plan: `Bike_Data_Logger_Project_Plan.md`. Step-by-step build order:
   - Bug caught and fixed: `registerListener` had been using
     `SensorManager.SENSOR_DELAY_NORMAL` since Step 2 (a slow, UI-oriented
     hint, ~5-16Hz) instead of `SENSOR_DELAY_GAME` (~50Hz, meant for logging).
-    First test run produced only 76 rows in 5s; switching to `SENSOR_DELAY_GAME`
-    fixed it to 326 rows in 5s (~65Hz — delay hints are a requested minimum
-    interval, not a hard cap, so faster-than-requested is expected, not a bug).
+    First test run produced only 76 rows in 5s. The table isn't cleared
+    between runs (only the in-memory buffer is), so the next test showed
+    326 total rows — 76 old + 250 new, confirmed via a Database Inspector
+    SQL query split on `id`. The 250 new rows is a spot-on match for
+    50Hz × 5s once `SENSOR_DELAY_GAME` was in place.
   - Verified on emulator via Database Inspector: `sensor_readings` table
-    populated, row count in the right ballpark for 50Hz × 5s.
+    populated, 250 new rows for the fixed-rate run — matches expected
+    50Hz × 5s exactly.
 - **Not yet started:** Step 7 onward (physical device, ride sessions, CSV
   export, first real ride).
 
