@@ -48,8 +48,8 @@ Read this file before making any code suggestions or edits.
 ## Where the project stands
 
 **Phase 0 (device prep): complete.**
-**Phase 1 (sensor logger app): Steps 1-5 of 10 done and verified. Step 6 (same
-pattern for sensors) next.**
+**Phase 1 (sensor logger app): Steps 1-6 of 10 done and verified. Step 7
+(physical S4) next.**
 
 Full plan: `Bike_Data_Logger_Project_Plan.md`. Step-by-step build order:
 `BUILD_CHECKLIST_Phase1.md`.
@@ -105,8 +105,24 @@ Full plan: `Bike_Data_Logger_Project_Plan.md`. Step-by-step build order:
   in the checklist depended on it. Verified on emulator: two separate
   "Start logging" runs each produced exactly 6 rows, 5 seconds apart, with
   real fake-GPS coordinates.
-- **Not yet started:** Step 6 onward (sensor logging table, physical device,
-  ride sessions, CSV export, first real ride).
+- **Step 6 (sensor logging table) — done:** new entity `SensorReading(id,
+  timestamp, x, y, z)`, separate table from `GpsPoint`. `AppDatabase` bumped
+  to version 2 with `fallbackToDestructiveMigration()` (disposable emulator
+  test data, no need for a real `Migration` yet). New `btnStartSensorLogging`
+  button: while active, `onSensorChanged` appends readings to an in-memory
+  list (can't call suspend Room inserts directly from that callback, and
+  250 individual insert coroutines would be wasteful); after a 5-second
+  window it does one batch `insertAll`.
+  - Bug caught and fixed: `registerListener` had been using
+    `SensorManager.SENSOR_DELAY_NORMAL` since Step 2 (a slow, UI-oriented
+    hint, ~5-16Hz) instead of `SENSOR_DELAY_GAME` (~50Hz, meant for logging).
+    First test run produced only 76 rows in 5s; switching to `SENSOR_DELAY_GAME`
+    fixed it to 326 rows in 5s (~65Hz — delay hints are a requested minimum
+    interval, not a hard cap, so faster-than-requested is expected, not a bug).
+  - Verified on emulator via Database Inspector: `sensor_readings` table
+    populated, row count in the right ballpark for 50Hz × 5s.
+- **Not yet started:** Step 7 onward (physical device, ride sessions, CSV
+  export, first real ride).
 
 ### Repo
 

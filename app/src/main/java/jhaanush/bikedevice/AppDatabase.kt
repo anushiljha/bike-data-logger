@@ -5,9 +5,10 @@ import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 
-@Database(entities = [GpsPoint::class], version = 1)
+@Database(entities = [GpsPoint::class, SensorReading::class], version = 2)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun gpsPointDao(): GpsPointDao
+    abstract fun sensorReadingDao(): SensorReadingDao
 
     companion object {
         @Volatile
@@ -19,7 +20,8 @@ abstract class AppDatabase : RoomDatabase() {
                     context.applicationContext,
                     AppDatabase::class.java,
                     "bike_data.db"
-                ).build().also { INSTANCE = it }
+                ).fallbackToDestructiveMigration()
+                    .build().also { INSTANCE = it }
             }
         }
     }

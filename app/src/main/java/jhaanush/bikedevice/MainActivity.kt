@@ -27,6 +27,9 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
     private lateinit var fusedLocationClient: FusedLocationProviderClient
     private lateinit var db: AppDatabase
 
+    private var isLoggingSensors = false
+    private val sensorBuffer = mutableListOf<SensorReading>()
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
@@ -55,6 +58,17 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
             lifecycleScope.launch {
                 val points = db.gpsPointDao().getAll()
                 points.forEach { Log.d("DB", it.toString()) }
+            }
+        }
+
+        findViewById<Button>(R.id.btnStartSensorLogging).setOnClickListener {
+            lifecycleScope.launch {
+                sensorBuffer.clear()
+                isLoggingSensors = true
+                delay(5000)
+                isLoggingSensors = false
+                db.sensorReadingDao().insertAll(sensorBuffer)
+                Log.d("SENSOR", "logged ${sensorBuffer.size} rows")
             }
         }
 
@@ -95,7 +109,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
     override fun onResume() {
         super.onResume()
         accelerometer?.also {
-            sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_NORMAL)
+            sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_GAME)
         }
     }
 
@@ -109,6 +123,10 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         val y = event.values[1]
         val z = event.values[2]
         Log.d("SENSOR", "x=$x y=$y z=$z")
+
+        if (isLoggingSensors) {
+            sensorBuffer.add(SensorReading(timestamp = System.currentTimeMillis(), x = x, y = y, z = z))
+        }
     }
 
     override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
