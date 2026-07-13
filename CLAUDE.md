@@ -195,19 +195,28 @@ Full plan: `Bike_Data_Logger_Project_Plan.md`. Step-by-step build order:
     - **Outdoor test — verified.** Real fix outdoors produced two
       consecutive rows (`42.7611468, -84.4784629`) exactly **5.19 seconds
       apart** — matching the intended ~5s cadence and confirming the fix is
-      correct. The run stopped after 3 of 6 iterations (1 null + 2
-      successful) rather than completing all 6; most likely the Activity
-      got recreated when the screen locked/lost foreground while walking
-      back inside, which cancels `lifecycleScope`'s in-flight coroutine on
-      this memory-constrained hardware. Not a bug in the fix — it's a known
-      limitation of logging from a plain Activity instead of a background
-      service, and Step 8's foreground-service architecture (already in the
-      project plan) is the real fix for that, not something to build early
-      here.
+      correct. Several repeat attempts after this all stopped partway
+      through (1-3 of 6 iterations) instead of completing all 6. Not a bug
+      in the fix — confirmed root cause below.
   - **Step 7 verify condition met**: both `gps_points` (correct timing when
     a fix is available) and `sensor_readings` (exact 50Hz/5s match) now
     behave correctly on physical hardware, consistent with emulator design
     intent.
+  - **Confirmed finding for Step 8: this device's low-memory killer reaps
+    the app process itself whenever it leaves the foreground**, not just
+    pauses/recreates the Activity. Verified directly: the app's PID changed
+    between test runs (e.g. `2103` → `10330`) with no user action other
+    than backgrounding it, and `adb logcat`'s `ActivityManager` lines
+    showed the OS killing several other background apps
+    (`Killing ...: bgCount ##41`) at the same moments logging runs cut off.
+    Once killed, no further DB writes ever resumed on their own — matches
+    a genuinely dead process, not a paused one. **Implication: Step 8 must
+    use a real foreground service with a persistent notification** (the
+    project plan already lists `FOREGROUND_SERVICE`/`WAKE_LOCK`
+    permissions for this) — a plain Activity + `lifecycleScope`, however
+    correct its logic is, cannot survive backgrounding on this hardware.
+    This isn't optional hardening; it's a hard requirement confirmed by
+    testing, not a theoretical concern.
 - **Not yet started:** Step 8 onward (ride sessions, CSV export, first real
   ride).
 
