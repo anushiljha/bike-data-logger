@@ -12,25 +12,35 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:text="Hello World!"
-        app:layout_constraintBottom_toTopOf="@id/btnInsert"
+        app:layout_constraintBottom_toTopOf="@id/tvRideTimer"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="parent" />
 
-    <Button
-        android:id="@+id/btnInsert"
+    <TextView
+        android:id="@+id/tvRideTimer"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="Insert one GPS point"
-        app:layout_constraintBottom_toTopOf="@id/btnStartLogging"
+        android:text="00:00"
+        android:textSize="24sp"
+        app:layout_constraintBottom_toTopOf="@id/btnStartRide"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent" />
 
     <Button
-        android:id="@+id/btnStartLogging"
+        android:id="@+id/btnStartRide"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="Start logging"
+        android:text="Start ride"
+        app:layout_constraintBottom_toTopOf="@id/btnStopRide"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent" />
+
+    <Button
+        android:id="@+id/btnStopRide"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Stop ride"
         app:layout_constraintBottom_toTopOf="@id/btnQuery"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent" />
@@ -40,15 +50,6 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:text="Query"
-        app:layout_constraintBottom_toTopOf="@id/btnStartSensorLogging"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent" />
-
-    <Button
-        android:id="@+id/btnStartSensorLogging"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="Start sensor logging"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent" />

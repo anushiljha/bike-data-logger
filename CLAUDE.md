@@ -48,8 +48,11 @@ Read this file before making any code suggestions or edits.
 ## Where the project stands
 
 **Phase 0 (device prep): complete.**
-**Phase 1 (sensor logger app): Steps 1-7 of 10 done and verified. Step 8
-(ride session wrapper) next.**
+**Phase 1 (sensor logger app): Steps 1-8 of 10 done. Step 8's code is built,
+smoke-tested indoors on the physical S4, and two real bugs found during that
+testing are fixed — but its actual checklist verify condition (a real 5-minute
+walk) is still outstanding, on hold while a sprained ankle heals. Step 9
+(CSV export) next once that walk is done.**
 
 Full plan: `Bike_Data_Logger_Project_Plan.md`. Step-by-step build order:
 `BUILD_CHECKLIST_Phase1.md`.
@@ -217,8 +220,85 @@ Full plan: `Bike_Data_Logger_Project_Plan.md`. Step-by-step build order:
     correct its logic is, cannot survive backgrounding on this hardware.
     This isn't optional hardening; it's a hard requirement confirmed by
     testing, not a theoretical concern.
-- **Not yet started:** Step 8 onward (ride sessions, CSV export, first real
-  ride).
+- **Step 8 (ride session wrapper) — code done, indoor smoke-tests passed,
+  outdoor walk still pending:**
+  - Added `Ride(id, startTime, endTime)` and a `rideId` `@ForeignKey` column
+    on both `GpsPoint` and `SensorReading` (DB version 2→3,
+    `fallbackToDestructiveMigration()` still fine — same disposable-test-data
+    reasoning as Step 6). Sensor and GPS logging moved entirely out of
+    `MainActivity` and into a new `LoggingService` (a `LifecycleService`,
+    which gives the same `lifecycleScope.launch{}` pattern already used
+    elsewhere) — this is the foreground-service fix Step 7 found necessary.
+    `MainActivity`'s old fixed-window test buttons (`btnStartLogging`,
+    `btnStartSensorLogging`, `btnInsert`) are gone, replaced by
+    `btnStartRide`/`btnStopRide`, which just send the service a plain
+    `Intent` (a `rideId` extra to start, a `STOP_RIDE` action to stop) — no
+    binding needed since it's fire-and-forget commands, not a live
+    connection. Added a ride-elapsed-time `TextView`, ticking every second
+    off `System.currentTimeMillis() - startTime` in `MainActivity` — pure
+    local UI state, no DB/service involvement.
+  - **Bug found and fixed: `MainActivity`'s `isRideActive` flag didn't
+    survive screen rotation.** Rotating the phone destroys and recreates the
+    Activity by default (a basic Android config-change behavior), which
+    reset `isRideActive` to `false` in the new instance — even though the
+    service itself kept running fine underneath (that's the whole point of
+    moving logging into a service). Symptom chain, confirmed via `dumpsys
+    activity services` and a DB pull: a reset `isRideActive` let a second
+    "Start Ride" tap silently create a second ride on the *same* running
+    service instance (services are singletons — this didn't spawn a new
+    one), which re-registered the sensor listener a second time and
+    orphaned the first ride's GPS/flush coroutines; then the next "Stop
+    Ride" tap did nothing because the guard `if (isRideActive)` was false
+    again, leaving the service running as an orphaned foreground process
+    (confirmed still alive via `dumpsys`, `lastStartId=2`, ~4m40s after it
+    should have stopped — had to be stopped manually via
+    `adb shell su -c "am startservice ... -a STOP_RIDE"`, since a plain
+    shell `am startservice` is rejected by the service's
+    `android:exported="false"`, but root bypasses that check).
+    **Fixed** by adding `android:screenOrientation="portrait"` to
+    `MainActivity` — a deliberate design choice, not just a patch: this is a
+    handlebar-mounted device with no real reason to support landscape, so
+    removing the rotation trigger removes the whole bug class at its root
+    rather than adding recreation-survival plumbing (e.g. re-deriving ride
+    state from the DB on every `onCreate`) for a device orientation this app
+    will never actually see in use. After the fix, a clean single-tap
+    ride (55.7s, then a second at 10.7s) closed correctly: one `rides` row,
+    correct `endTime`, no lingering service afterward.
+  - **Investigated, not a bug: sensor rate is now ~100Hz instead of the
+    ~50Hz confirmed in Steps 6-7.** Measured directly via a temporary
+    per-event counter in `onSensorChanged` (bypassing the DB/buffer layer
+    entirely) across three separate test runs: consistently ~92-100Hz, e.g.
+    1081 events over 10.840s = 99.7Hz. Ruled out the obvious cause (a
+    duplicate `registerListener` call, or two app processes both writing to
+    the shared db file) — confirmed via `grep` that there's exactly one
+    registration call in the whole codebase, and via logcat's
+    `ActivityManager` lines that each reinstall cleanly killed the prior
+    process first. Tried switching from the named constant
+    `SensorManager.SENSOR_DELAY_GAME` to an explicit
+    `registerListener(..., 20_000)` (20ms period) on the theory that the
+    named constant's mapping might be context-dependent — measured again,
+    rate unchanged (still ~99.7Hz), which disproves that theory (`GAME` is
+    a fixed AOSP constant that always maps to 20,000µs, so the two calls
+    were functionally identical; reverted back to the named constant since
+    the literal offered no benefit). The one remaining structural
+    difference from Steps 6-7 is registering the listener from a `Service`
+    instead of an `Activity` — which Step 8 requires architecturally — so
+    this looks like this specific Samsung hardware's sensor HAL delivering
+    a different real rate depending on caller context, not an app bug.
+    **Decision: accept ~100Hz as the new real baseline rather than keep
+    chasing it.** Every row already carries a genuine `timestamp`, so
+    downstream pandas analysis keys off that rather than an assumed fixed
+    interval — a higher (or slightly variable) rate doesn't break anything,
+    it only costs roughly double the rows/storage and marginally more
+    battery per ride, both negligible for this device and ride lengths.
+  - **Outstanding:** the checklist's actual Step 8 verify condition (a real
+    5-minute walk around the block, confirming one plausible-duration
+    `rides` row with GPS/sensor rows sharing that `ride_id` under real
+    motion) hasn't been done yet — on hold while an ankle sprain heals.
+    Indoor testing already confirms the ride-session mechanics (start/stop,
+    FK correctness, timer, no lingering service) work correctly; what's left
+    is purely the real-world GPS-in-motion validation.
+- **Not yet started:** Step 9 onward (CSV export, first real ride).
 
 ### Repo
 
