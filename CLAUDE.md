@@ -48,8 +48,8 @@ Read this file before making any code suggestions or edits.
 ## Where the project stands
 
 **Phase 0 (device prep): complete.**
-**Phase 1 (sensor logger app): Steps 1-6 of 10 done and verified. Step 7
-(physical S4) next.**
+**Phase 1 (sensor logger app): Steps 1-7 of 10 done and verified. Step 8
+(ride session wrapper) next.**
 
 Full plan: `Bike_Data_Logger_Project_Plan.md`. Step-by-step build order:
 `BUILD_CHECKLIST_Phase1.md`.
@@ -60,8 +60,9 @@ Full plan: `Bike_Data_Logger_Project_Plan.md`. Step-by-step build order:
   permanently eFuse-locked bootloader — no LineageOS/TWRP/CWM/any custom ROM
   is possible on this exact firmware. (A 2023 community chainload exploit
   exists as a theoretical advanced option but is out of scope.)
-- **Root method: identified**, OF1-specific guide confirmed working. Not yet
-  executed — not needed until Phase 1 Step 7 (physical device).
+- **Root method: executed during Phase 1 Step 7** (see below) — turned out to
+  be needed sooner than planned, to work around `adb run-as` being blocked on
+  this stock Samsung build. Full narrative under Step 7.
 - **Carrier lock: not applicable** — project is WiFi-only by design.
 - **Navigation app: OsmAnd** (not yet implemented — that's Phase 2). Chosen
   over Google Maps because Google ended Play Services updates for all of
@@ -124,8 +125,91 @@ Full plan: `Bike_Data_Logger_Project_Plan.md`. Step-by-step build order:
   - Verified on emulator via Database Inspector: `sensor_readings` table
     populated, 250 new rows for the fixed-rate run — matches expected
     50Hz × 5s exactly.
-- **Not yet started:** Step 7 onward (physical device, ride sessions, CSV
-  export, first real ride).
+- **Step 7 (move to the real S4) — done:** Developer Options/USB
+  debugging already enabled from earlier root prep; `adb devices` shows the
+  S4 (`SCH_I545`/`jfltevzw`) as authorized. Screen mirroring isn't available
+  on this device (too old), so verification is via `adb`/Logcat/DB queries
+  instead of a mirrored screen. Built the Step 6 APK with `gradlew
+  assembleDebug`, installed with `adb install -r`, launched with `adb shell
+  monkey`. Confirmed: app UI on the physical device matches the emulator
+  exactly, and the raw Step 2 accelerometer stream (`Log.d("SENSOR", ...)`)
+  is producing real, live values from the actual hardware.
+  - **DB verification blocked, then unblocked via root:** Android Studio's
+    Database Inspector requires API 26+ and this device is API 21, so it
+    can't attach at all — verification has to happen by pulling the raw
+    `.db` file instead. `adb shell run-as` then failed with "Package
+    'jhaanush.bikedevice' is unknown" even though `pm list packages` showed
+    it installed correctly — a known restriction on stock Samsung/Verizon
+    firmware (`ro.debuggable=0` on the device build), not an app problem.
+    That's what made root necessary now instead of later.
+  - **Rooted with KingRoot 4.5.0**, not the KingoRoot chain originally
+    identified in Phase 0 — KingoRoot's one-click flow now crashes with a
+    JSON parse error (`Expected BEGIN_ARRAY but was BEGIN_OBJECT`), because
+    its decade-old app is calling a live backend whose response format has
+    moved on. KingRoot 4.5.0 (a different company, easily confused by name)
+    is independently documented as the version confirmed for this exact
+    firmware, and worked. Confirmed via `adb shell su -c id` → `uid=0`.
+    Deliberately skipped the SuperSU swap from the original guide — that
+    step only replaces KingRoot's own root manager with a more trusted one,
+    which doesn't matter here since the project's only use of root is
+    developer-side `adb shell su` access, not anything the app itself
+    depends on at runtime.
+  - **DB pull method:** copy `.db` and `.db-wal` to `/sdcard` via
+    `su -c cp`, then `adb pull` (not `adb shell ... > file` — PowerShell's
+    redirect re-encodes stdout as text and corrupts binary SQLite files).
+    Room uses WAL journal mode, so the `-wal` file has to be pulled
+    alongside the main `.db` or recent rows won't be visible. Query with
+    `sqlite3.exe`, which is already bundled in the Android SDK at
+    `platform-tools/sqlite3.exe` — no separate install needed.
+  - **Sensor logging: confirmed matches emulator exactly.** Pulled data
+    showed two distinct test runs (251 rows, then a 212s gap, then 251
+    more) — each a clean ~50Hz/5s window, same cumulative-across-runs
+    behavior already known from Step 6.
+  - **GPS logging: found and fixed a real bug** (not a device quirk).
+    `insertOneRealLocation()` used a fire-and-forget
+    `.addOnSuccessListener` callback instead of awaiting the result, so
+    `repeat(6) { insertOneRealLocation(); delay(5000) }` fired all 6
+    location *requests* correctly spaced 5s apart but never waited for a
+    result before moving on. The emulator's fake GPS resolves instantly, so
+    this was invisible there. On real hardware — no SIM/cellular, so no
+    assisted-GPS, and cold-start fixes can take a long time especially
+    indoors — all 6 pending requests resolved in a burst once a fix
+    finally arrived: pulled data showed 6 rows within 13ms of each other
+    instead of 5 seconds apart.
+    - Fixed: `insertOneRealLocation` is now `suspend` and calls `.await()`
+      (added `kotlinx-coroutines-play-services:1.7.3` — pinned to match
+      the `kotlinx-coroutines-core` version already resolved transitively
+      via Room/lifecycle, confirmed via manifest merge that minSdk stays
+      at 21, same check applied to every other dependency in this
+      project), so the loop now genuinely waits for each GPS attempt
+      before its next `delay(5000)`.
+    - Added `try/catch` around `.await()`, rethrowing `CancellationException`
+      first — it's itself an `Exception` subtype, and swallowing it would
+      break normal coroutine cancellation — so one failed location request
+      logs and moves on instead of crashing the whole 6-attempt run.
+    - Rebuilt and reinstalled. Confirmed indoors that Play Services now
+      correctly resolves to `null` (logged, not silently hung or bursty)
+      when no fix is available — matches `dumpsys location` showing only a
+      38-minute-old, 4-satellite fix on hand, no fresher one obtainable
+      near a window.
+    - **Outdoor test — verified.** Real fix outdoors produced two
+      consecutive rows (`42.7611468, -84.4784629`) exactly **5.19 seconds
+      apart** — matching the intended ~5s cadence and confirming the fix is
+      correct. The run stopped after 3 of 6 iterations (1 null + 2
+      successful) rather than completing all 6; most likely the Activity
+      got recreated when the screen locked/lost foreground while walking
+      back inside, which cancels `lifecycleScope`'s in-flight coroutine on
+      this memory-constrained hardware. Not a bug in the fix — it's a known
+      limitation of logging from a plain Activity instead of a background
+      service, and Step 8's foreground-service architecture (already in the
+      project plan) is the real fix for that, not something to build early
+      here.
+  - **Step 7 verify condition met**: both `gps_points` (correct timing when
+    a fix is available) and `sensor_readings` (exact 50Hz/5s match) now
+    behave correctly on physical hardware, consistent with emulator design
+    intent.
+- **Not yet started:** Step 8 onward (ride sessions, CSV export, first real
+  ride).
 
 ### Repo
 

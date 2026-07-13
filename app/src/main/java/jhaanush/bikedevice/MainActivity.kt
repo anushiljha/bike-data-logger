@@ -17,8 +17,10 @@ import androidx.lifecycle.lifecycleScope
 import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
 
 class MainActivity : AppCompatActivity(), SensorEventListener {
 
@@ -42,12 +44,15 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         db = AppDatabase.getInstance(this)
 
         findViewById<Button>(R.id.btnInsert).setOnClickListener {
-            insertOneRealLocation()
+            lifecycleScope.launch {
+                insertOneRealLocation()
+            }
         }
 
         findViewById<Button>(R.id.btnStartLogging).setOnClickListener {
             lifecycleScope.launch {
-                repeat(6) {
+                repeat(6)
+                {
                     insertOneRealLocation()
                     delay(5000)
                 }
@@ -86,24 +91,27 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
     }
 
     @RequiresPermission(allOf = [Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION])
-    private fun insertOneRealLocation() {
+    private suspend fun insertOneRealLocation() {
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
             != PackageManager.PERMISSION_GRANTED) {
             Log.d("GPS", "permission not granted yet, ignoring button press")
             return
         }
-        fusedLocationClient.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, null)
-            .addOnSuccessListener { location ->
-                if (location != null) {
-                    lifecycleScope.launch {
-                        db.gpsPointDao().insert(
-                            GpsPoint(timestamp = System.currentTimeMillis(), lat = location.latitude, lon = location.longitude)
-                        )
-                    }
-                } else {
-                    Log.d("GPS", "location was null — set a fake GPS location in emulator extended controls")
-                }
-            }
+        val location = try {
+            fusedLocationClient.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, null).await()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.d("GPS", "location request failed: ${e.message}")
+            return
+        }
+        if (location != null) {
+            db.gpsPointDao().insert(
+                GpsPoint(timestamp = System.currentTimeMillis(), lat = location.latitude, lon = location.longitude)
+            )
+        } else {
+            Log.d("GPS", "location was null — set a fake GPS location in emulator extended controls")
+        }
     }
 
     override fun onResume() {
