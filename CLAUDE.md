@@ -48,11 +48,8 @@ Read this file before making any code suggestions or edits.
 ## Where the project stands
 
 **Phase 0 (device prep): complete.**
-**Phase 1 (sensor logger app): Steps 1-8 of 10 done. Step 8's code is built,
-smoke-tested indoors on the physical S4, and two real bugs found during that
-testing are fixed — but its actual checklist verify condition (a real 5-minute
-walk) is still outstanding, on hold while a sprained ankle heals. Step 9
-(CSV export) next once that walk is done.**
+**Phase 1 (sensor logger app): Steps 1-8 of 10 done and verified, including
+the real outdoor 5-minute walk. Step 9 (CSV export) next.**
 
 Full plan: `Bike_Data_Logger_Project_Plan.md`. Step-by-step build order:
 `BUILD_CHECKLIST_Phase1.md`.
@@ -291,13 +288,38 @@ Full plan: `Bike_Data_Logger_Project_Plan.md`. Step-by-step build order:
     interval — a higher (or slightly variable) rate doesn't break anything,
     it only costs roughly double the rows/storage and marginally more
     battery per ride, both negligible for this device and ride lengths.
-  - **Outstanding:** the checklist's actual Step 8 verify condition (a real
-    5-minute walk around the block, confirming one plausible-duration
-    `rides` row with GPS/sensor rows sharing that `ride_id` under real
-    motion) hasn't been done yet — on hold while an ankle sprain heals.
-    Indoor testing already confirms the ride-session mechanics (start/stop,
-    FK correctness, timer, no lingering service) work correctly; what's left
-    is purely the real-world GPS-in-motion validation.
+  - **Outdoor verify — done.** Real 5-minute walk (ankle wasn't fully
+    healed but tolerable). Rebuilt/reinstalled the APK first to make sure
+    the S4 had the exact Step 8 code, including the portrait-lock fix. Pulled
+    `bike_data.db`/`-wal` afterward via the same root `su -c cp` +
+    `adb pull` method as Step 7. Result: ride id 6, 305.3s duration
+    (~5m5s), 9 `gps_points` and 24,001 `sensor_readings` rows, all correctly
+    tagged `rideId=6`. Latitude moved from 42.76113 → 42.76206 → back to
+    42.76169 across the fixes — real motion, not a stuck reading. Verify
+    condition met.
+  - **Investigated: irregular GPS gaps during the walk (93s and 29s gaps
+    mid-walk, 75s gap before Stop Ride), not a device fault.** `dumpsys
+    location` right after the walk showed the fixes were locked onto only
+    **4 satellites** (accuracy 39-74m) — the bare minimum for any 3D fix,
+    not a healthy lock. `dumpsys telephony.registry` confirmed (again) no
+    SIM/telephony at all, which matters here specifically: no cellular means
+    no A-GPS (assisted GPS) — normally the network hands the GPS chip
+    satellite ephemeris data so a lost fix re-acquires in a couple seconds;
+    without it, this device has to pull that data directly off the
+    satellites themselves, which is far slower. `dumpsys wifi` showed the
+    phone also dropped off the home network 69s into the walk, so for most
+    of it there was no network-assisted location fallback either — GPS
+    alone, on a marginal 4-satellite lock, with no fast recovery path.
+    **Conclusion: expected behavior given the Phase 0 WiFi-only/no-SIM
+    decision, not broken hardware.** `LoggingService.insertOneGpsPoint()`
+    (`LoggingService.kt:83-90`) waits for `getCurrentLocation()` to resolve
+    before starting its 5s delay, so slow fixes directly reduce point
+    count — 9 points instead of the ~61 a perfect 5s cadence would give
+    over 5 minutes. **Implication for Step 10:** expect the same patchy GPS
+    density on real rides, especially under tree cover or between
+    buildings — not something to fix now (would mean accepting a SIM or
+    reworking the location request strategy), but relevant context before
+    interpreting ride tracks later.
 - **Not yet started:** Step 9 onward (CSV export, first real ride).
 
 ### Repo
