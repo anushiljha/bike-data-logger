@@ -50,6 +50,15 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:text="Query"
+        app:layout_constraintBottom_toTopOf="@id/btnExport"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent" />
+
+    <Button
+        android:id="@+id/btnExport"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Export"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent" />
