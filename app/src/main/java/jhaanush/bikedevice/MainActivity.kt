@@ -42,6 +42,8 @@ class MainActivity : AppCompatActivity() {
             if (isRideActive) stopRide()
         }
 
+
+
         findViewById<Button>(R.id.btnQuery).setOnClickListener {
             lifecycleScope.launch {
                 val points = db.gpsPointDao().getAll()
@@ -73,6 +75,14 @@ class MainActivity : AppCompatActivity() {
         if (missing.isNotEmpty()) {
             ActivityCompat.requestPermissions(this, missing.toTypedArray(), 100)
         }
+
+        lifecycleScope.launch {
+            val activeRide = db.rideDao().getActiveRide()
+            if (activeRide != null) {
+                isRideActive = true
+                startTimerTicking(activeRide.startTime)
+            }
+        }
     }
 
     private fun startRide() {
@@ -83,12 +93,16 @@ class MainActivity : AppCompatActivity() {
                 .putExtra(LoggingService.EXTRA_RIDE_ID, rideId)
             ContextCompat.startForegroundService(this@MainActivity, intent)
             isRideActive = true
-            timerJob = lifecycleScope.launch {
-                while (true) {
-                    val elapsedSeconds = (System.currentTimeMillis() - startTime) / 1000
-                    rideTimerText.text = String.format("%02d:%02d", elapsedSeconds / 60, elapsedSeconds % 60)
-                    delay(1000)
-                }
+            startTimerTicking(startTime)
+        }
+    }
+
+    private fun startTimerTicking(startTime: Long) {
+        timerJob = lifecycleScope.launch {
+            while (true) {
+                val elapsedSeconds = (System.currentTimeMillis() - startTime) / 1000
+                rideTimerText.text = String.format("%02d:%02d", elapsedSeconds / 60, elapsedSeconds % 60)
+                delay(1000)
             }
         }
     }
@@ -130,6 +144,8 @@ class MainActivity : AppCompatActivity() {
             }
             dir
         }
-        Toast.makeText(this, "Exported ride ${ride.id} to ${exportDir.path}", Toast.LENGTH_LONG).show()
+        Log.d("EXPORT", "Exported ride ${ride.id} to ${exportDir.path}")
+        Toast.makeText(this, "Ride exported", Toast.LENGTH_SHORT).show()
+        rideTimerText.text = "00:00"
     }
 }

@@ -375,7 +375,142 @@ Full plan: `Bike_Data_Logger_Project_Plan.md`. Step-by-step build order:
     available in the environment used for this verification pass — only a
     Microsoft Store stub) but the row-count/value cross-check against the
     known DB truth was accepted as sufficient to call the step verified.
-- **Not yet started:** Step 10 (first real bike ride).
+- **Step 10 (first real bike ride) — in progress.**
+  - **Small UX tweak made to the Export flow, written but not yet on the
+    phone:** `exportMostRecentRide()` in `MainActivity.kt` now shows a short
+    `Toast.LENGTH_SHORT` "Ride exported" message (was a `LENGTH_LONG` toast
+    with the full file path — that detail moved to a `Log.d("EXPORT", ...)`
+    line instead, so it's not lost, just off the visible UI) and resets
+    `rideTimerText` to `00:00` after a successful export. Purely cosmetic,
+    not required for Step 10's verify condition — done as a "temp measure"
+    ahead of a commute ride on 2026-07-15.
+  - **Discovered: `adb install` became unreliable mid-session** — repeated
+    failures with `adb: error: failed to read copy response` (push reports
+    success but the file doesn't actually land — confirmed via
+    `adb shell ls` afterward showing it missing), and separately
+    `'device <serial> not found' ... shell:pm install-commit ...` plus the
+    device intermittently disappearing and reappearing in `adb devices`.
+    Tried: killing/restarting the adb server, `pm install` from
+    `/data/local/tmp` instead of `adb install` directly, retrying multiple
+    times — none fixed it. Points to a physical-layer USB issue (worn
+    micro-USB port/cable — heavily used across Steps 7-9's installs/pulls,
+    and possibly aggravated by moisture/debris from the Step 8 outdoor
+    walk), not an adb/gradle config regression, since nothing in that setup
+    changed between sessions. **Unresolved — next session, before
+    reinstalling:** try a different cable/USB port, or switch to
+    `adb tcpip 5555` / `adb connect` over WiFi to sidestep USB entirely.
+  - **Net effect: the 2026-07-15 commute ride(s) are being logged on the
+    Step 9 build already on the phone** (CSV export works, just without the
+    shortened toast / timer-reset tweak above) — the app itself wasn't
+    touched beyond that cosmetic diff, so Step 10's actual verify condition
+    (clean export, no crashes, no gaps) is unaffected. The toast/timer diff
+    is uncommitted in the working tree pending install + verification.
+  - **Confirmed bug, found from real 2026-07-15 ride data: every real ride
+    ended up with `endTime = NULL`, immediately followed by a near-instant
+    "ghost" ride that got a clean `endTime`.** Pulled `bike_data.db` and
+    found 6 real rides (ids 7, 9, 11, 13, 15, 17 — 7.3 to 19.3 minutes each,
+    ~92 minutes total), each followed within milliseconds by a 0.6-4.7s
+    ghost ride (8, 10, 12, 14, 16, 18). Sensor data for each real ride is
+    fully continuous with no internal gaps — the bug is in ride
+    bookkeeping, not logging.
+    - **Root cause: same class of bug Step 8 diagnosed, different trigger.**
+      `MainActivity.isRideActive` (an in-memory `var`) is never
+      re-derived after the Activity is recreated. Step 8's fix
+      (`screenOrientation="portrait"`) only removed *rotation* as a
+      recreation trigger. Confirmed via user report: screen lock/unlock
+      alone does *not* kill the timer (Activity survives a normal
+      pause/resume), but staying locked for a long stretch does — Android
+      reclaiming a long-stopped Activity for memory, which happens on
+      *every* real ride since you can't watch the screen while biking.
+      Symptom chain matches exactly: timer reset to 0 (fresh Activity,
+      `timerJob`/`isRideActive` lost), Stop Ride did nothing (guarded by
+      `isRideActive`, silently false), notification only cleared after a
+      manual Start-then-Stop (which created the ghost ride and finally sent
+      a real stop command).
+    - **Fix:** `RideDao.getActiveRide()` — `SELECT * FROM rides WHERE
+      endTime IS NULL ORDER BY id DESC LIMIT 1`. `MainActivity.onCreate`
+      now queries this and, if found, restores `isRideActive = true` and
+      resumes the timer from the ride's real `startTime`, instead of always
+      assuming no ride is active. Timer-ticking loop factored into
+      `startTimerTicking()`, shared between `startRide()` and this restore
+      path. The DB (not in-memory Activity state) is now the source of
+      truth for "is a ride running."
+    - **Verified two ways:** (1) simulated the exact trigger on-device via
+      `settings put global always_finish_activities 1` + home button —
+      confirmed the Activity was destroyed (`LoggingService` stayed alive
+      underneath), relaunched, timer correctly resumed from real elapsed
+      time instead of showing `00:00`, and Stop Ride then genuinely
+      stopped the service and wrote a real `endTime` (ride 19, 245s, no
+      ghost ride created). (2) confirmed by an actual real ride the same
+      day: timer ran continuously and only stopped when Stop Ride was
+      pressed, matching intended behavior.
+    - **Data recovery:** exported the 6 orphaned real rides' `gps_points`/
+      `sensor_readings` to CSV (`exports/ride_{7,9,11,13,15,17}...csv`,
+      matching Step 9's format) directly from the pulled `.db` file before
+      any fix — this data was never reachable via the app's own Export
+      button, since that picks the single most-recent `rides` row, which
+      was always one of the 1-5s ghost rides. `exports/` added to
+      `.gitignore` (ride data, not code).
+    - **Then patched the 6 rows' `endTime` directly in the on-device DB**
+      (`UPDATE rides SET endTime = (SELECT MAX(timestamp) FROM
+      sensor_readings WHERE rideId = rides.id) WHERE id IN
+      (7,9,11,13,15,17)`), since the live device has no `sqlite3`/`busybox`
+      to run this in place — had to `am force-stop` the app, pull
+      `.db`+`.db-wal`, checkpoint (`PRAGMA wal_checkpoint(TRUNCATE)`) into a
+      single self-contained file, edit locally, push back over the
+      original (preserving `u0_a209:u0_a209` ownership by overwriting the
+      existing inode rather than replacing the file), and delete the
+      device's now-stale `-wal`/`-shm` so nothing gets replayed against the
+      edited file. Verified ownership/permissions unchanged before/after,
+      and that the app reopens the DB without error.
+    - **New wrinkle exposed by the cleanup, not yet fixed:** ride 1 (ancient
+      Step-8-era test data) was already sitting at `endTime = NULL` before
+      any of this, untouched since it's not one of the 6 real rides. After
+      cleanup it became the *only* remaining open row, so
+      `getActiveRide()` picked it up as "the active ride" on next launch —
+      cosmetic only (no live service is attached, so nothing real is at
+      risk), but it'll keep reappearing on every launch showing a huge
+      bogus elapsed time until ride 1's `endTime` is patched the same way.
+      Deferred until the phone's next reachable (it left with the user
+      mid-session for real-world testing).
+  - **GPS: 4 of the 6 real rides logged zero GPS points at all** (vs. 5 and
+    2 points for the other two, over 13-19 min rides) — worse than Step 8's
+    walk (9 points/5 min). Beyond the already-known no-SIM/no-A-GPS
+    limitation, `LoggingService.insertOneGpsPoint()` calls a fresh one-shot
+    `getCurrentLocation()` every 5s rather than a continuous
+    `requestLocationUpdates()` subscription — likely forcing the GPS chip
+    to cold-start-reacquire every cycle instead of staying locked. **Real
+    candidate fix, deliberately deferred** (user's call): switch to
+    `requestLocationUpdates()` for the ride's duration.
+  - **`adb install` unreliability (open since 2026-07-15) — confirmed same
+    symptom, real workaround found.** Push-then-install still fails with
+    `failed to read copy response: EOF`, file demonstrably not landing
+    on-device, even via `pm install` from `/data/local/tmp`. Revised theory:
+    since plain data *pulls* of similar/larger size (21MB+ `.db` file)
+    succeed reliably on the same cable, the drop is more likely the S4
+    being too CPU/disk-busy running the package manager's install-time
+    work (parse/verify/dexopt, on a memory-starved old device) to service
+    USB in time, rather than pure physical cable wear — matches the drop
+    happening specifically during install and clearing right after.
+    **Workaround that works: ADB over WiFi.** `adb tcpip 5555` (over the
+    existing connection) then `adb connect <phone-ip>:5555` — installed
+    successfully this way when direct-USB install kept failing. Caveat:
+    this device is API 21, predating Android's persistent "wireless
+    debugging" pairing (11+), so `adb tcpip` doesn't survive a reboot or
+    USB disconnect — every session needs one moment of USB (or already-live
+    WiFi) connectivity to re-arm it.
+  - **Android Studio's own update relocated the JBR, breaking the pinned
+    `JAVA_HOME`.** The update installed the new IDE version into a sibling
+    folder (`D:\Android\Android Studio\inthisnewone\`) instead of replacing
+    the original in place, leaving the old
+    `D:\Android\Android Studio\jbr\lib\jvm.cfg` missing/broken. Gradle
+    builds now need
+    `JAVA_HOME = "D:\Android\Android Studio\inthisnewone\jbr"` until the IDE
+    install settles into its normal location.
+  - Ride done via the app UI directly (Start Ride before mounting, Stop
+    Ride + Export after, no PC needed) — first real confirmation that the
+    Step 8 foreground-service logging survives being taken out and used
+    away from the PC, not just indoor/short-walk testing.
 
 ### Repo
 

@@ -17,4 +17,7 @@ interface RideDao {
 
     @Query("SELECT * FROM rides ORDER BY id DESC LIMIT 1")
     suspend fun getMostRecent(): Ride?
+
+    @Query("SELECT * FROM rides WHERE endTime IS NULL ORDER BY id DESC LIMIT 1")
+    suspend fun getActiveRide(): Ride?
 }
