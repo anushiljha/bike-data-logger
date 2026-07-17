@@ -48,12 +48,10 @@ Read this file before making any code suggestions or edits.
 ## Where the project stands
 
 **Phase 0 (device prep): complete.**
-**Phase 1 (sensor logger app): Steps 1-9 of 10 done and verified. Step 10
-(first real bike ride) in progress** — multiple real rides logged
-2026-07-15/16, several real bugs found and fixed from that data (ride
-bookkeeping orphaning, GPS/sensor thread contention), fixes stress-tested
-but pending final outdoor confirmation on 2026-07-17's rides before the
-step is called done and Phase 2 (navigation) starts.
+**Phase 1 (sensor logger app): complete — all 10 steps done and verified.**
+Step 10 (first real bike ride) closed out 2026-07-17 on ride 25's outdoor
+data, confirming the ride-bookkeeping and GPS/sensor-contention fixes hold
+up in real conditions. **Phase 2 (navigation) starts next.**
 
 Full plan: `Bike_Data_Logger_Project_Plan.md`. Step-by-step build order:
 `BUILD_CHECKLIST_Phase1.md`.
@@ -379,7 +377,7 @@ Full plan: `Bike_Data_Logger_Project_Plan.md`. Step-by-step build order:
     available in the environment used for this verification pass — only a
     Microsoft Store stub) but the row-count/value cross-check against the
     known DB truth was accepted as sufficient to call the step verified.
-- **Step 10 (first real bike ride) — in progress.**
+- **Step 10 (first real bike ride) — done, verified 2026-07-17.**
   - **Small UX tweak made to the Export flow, written but not yet on the
     phone:** `exportMostRecentRide()` in `MainActivity.kt` now shows a short
     `Toast.LENGTH_SHORT` "Ride exported" message (was a `LENGTH_LONG` toast
@@ -606,14 +604,35 @@ Full plan: `Bike_Data_Logger_Project_Plan.md`. Step-by-step build order:
     reverting to the previously-pinned versions — matches what Studio
     already built successfully with, avoids fighting the IDE's own
     auto-update on every open.
-  - **Step 10 status: core logic now solid (crash-free, ride bookkeeping
-    holds up under a real simulated process-death), GPS/sensor fix in
-    place but only indoor-tested. Not yet marked done** — pending
-    2026-07-17's real outdoor rides to confirm (a) GPS point density
-    actually improves over today's 13-42%, (b) sensor rate holds near
-    ~100Hz under real concurrent GPS activity outdoors (not just indoors
-    with GPS failing fast), and (c) the service-kill fix holds up if it
-    happens to occur naturally rather than only under a forced test.
+  - **2026-07-17: ride 25 (947.9s, ~15.8 min) confirmed all three pending
+    outdoor checks from CSV export.** Analyzed `ride_25.csv` /
+    `_gps.csv` / `_sensors.csv` directly (no `bike_data.db` pull needed
+    for this pass):
+    - **(a) GPS density — real improvement.** 41 points over 915.5s of
+      coverage, gaps ranging 5.7s–60.3s (avg ~22.9s against a 5s target
+      interval, so still patchy) — but a large jump from 2026-07-16's 4
+      of 6 rides logging **zero** GPS points, and the worst single gap
+      (60.3s) is well under Step 8's walk (93s). Matches the intended
+      effect of the `requestLocationUpdates()` fix; the remaining
+      patchiness is the already-understood no-SIM/no-A-GPS ceiling, not a
+      new bug.
+    - **(b) Sensor rate — improved, not fully back to the indoor
+      baseline.** 63,613 rows over 947.4s = **~67Hz**, well above
+      2026-07-16's 33-45Hz (old GPS-polling contention) but below the
+      ~99.8Hz measured in the indoor-only retest. Read as: indoors GPS was
+      failing fast (no real fix, so little callback traffic to contend
+      with); outdoors, genuine `LocationCallback` deliveries on the main
+      thread still cost something even without blocking `.await()` — the
+      fix reduced main-thread contention with sensor delivery, didn't
+      eliminate it.
+    - **(c) Service-kill/orphan fix — held up naturally.** `endTime`
+      (1784303854475) lands 80ms after the last `sensor_readings`
+      timestamp (1784303854395), consistent with a clean, intentional Stop
+      Ride tap. User confirmed directly (without a db pull) that no ghost
+      ride was created this time.
+  - **Step 10 status: done.** All three checks the fixes were pending on
+    are now confirmed against real outdoor data. Phase 2 (OsmAnd
+    navigation) starts next.
 
 ### Repo
 
