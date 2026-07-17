@@ -49,7 +49,11 @@ Read this file before making any code suggestions or edits.
 
 **Phase 0 (device prep): complete.**
 **Phase 1 (sensor logger app): Steps 1-9 of 10 done and verified. Step 10
-(first real bike ride) next.**
+(first real bike ride) in progress** — multiple real rides logged
+2026-07-15/16, several real bugs found and fixed from that data (ride
+bookkeeping orphaning, GPS/sensor thread contention), fixes stress-tested
+but pending final outdoor confirmation on 2026-07-17's rides before the
+step is called done and Phase 2 (navigation) starts.
 
 Full plan: `Bike_Data_Logger_Project_Plan.md`. Step-by-step build order:
 `BUILD_CHECKLIST_Phase1.md`.
@@ -511,6 +515,105 @@ Full plan: `Bike_Data_Logger_Project_Plan.md`. Step-by-step build order:
     Ride + Export after, no PC needed) — first real confirmation that the
     Step 8 foreground-service logging survives being taken out and used
     away from the PC, not just indoor/short-walk testing.
+  - **2026-07-16 session: three real commute/leisure rides recorded** (ids
+    20, 21, 22 — 15.2, 6.8, 15.8 min). All three closed with real `endTime`s
+    on the pre-fix build — no ghost rides that day, though the underlying
+    bug below was still live and just didn't happen to trigger. Manually
+    exported all three to `exports/ride_{20,21,22}*.csv` (same method as
+    the earlier orphaned-ride recovery — the app's own Export button only
+    ever grabs the single most-recent ride, so it can't reach 20/21 once 22
+    exists; a ride-picker for Export is a candidate future addition, not
+    done now).
+  - **Found and fixed: ride 1 (the original Step-8-era orphan, `endTime`
+    NULL since before the Step 10 cleanup) was still sitting unpatched** —
+    confirmed as the actual cause of a "timer showed 4337 min" report from
+    earlier the same day (matches `getActiveRide()` picking up ride 1's
+    ancient `startTime` on a cold `MainActivity` launch). Patched the same
+    way as the 6 other orphans: `su`-root `cp` to `/sdcard`, `adb pull`,
+    `PRAGMA wal_checkpoint(TRUNCATE)`, `UPDATE rides SET endTime = (SELECT
+    MAX(timestamp) FROM sensor_readings WHERE rideId=1) WHERE id=1`, push
+    back preserving `u0_a209:u0_a209` ownership, delete the device's now-stale
+    `-wal`/`-shm`. Verified via `adb logcat` (no crash) and a UI dump that
+    the app reopens clean with `Start Ride` enabled again.
+  - **Found and fixed: a second, more serious cause of the same "phantom
+    active ride" symptom, not just the one stale row.** `LoggingService`
+    keeps `rideId` as a plain in-memory field (`= -1` by default), only set
+    in `onStartCommand`'s "start" branch. `MainActivity.stopRide()` sends
+    `ACTION_STOP` via a blind `startService()` call with no check that the
+    *same* service process is still alive. If the process had died mid-ride
+    (Step 7's confirmed low-memory-killer behavior) and the Stop tap
+    relaunches it fresh, that new instance hits `ACTION_STOP` immediately
+    with `rideId` still `-1` — `setEndTime(-1, ...)` matches zero rows, and
+    the real ride is orphaned with `endTime = NULL` forever, reproducing
+    the exact "huge stale elapsed time" symptom on the next cold launch.
+    Step 10's original fix only ever addressed the *Activity*-side half of
+    this (state surviving recreation); this service-side gap was still
+    live. **Fixed** in `LoggingService.stopRide()`
+    (`LoggingService.kt:132-150`): if the in-memory `rideId` is `-1`, fall
+    back to `db.rideDao().getActiveRide()?.id` to find the real open ride
+    to close — same "DB is the source of truth" principle as the Activity
+    fix.
+  - **Stress-tested the fix by simulating the actual failure mode** (per
+    project decision: mix of a forced test now + passive verification on
+    2026-07-17's rides): started a ride, waited for sensor/GPS logging to
+    begin, then `su -c kill -9 <pid>` on the app process mid-ride. Logcat
+    showed `ActivityManager` treating it as a crashed foreground service
+    (`Scheduling restart of crashed service ... in 1000ms`) but the
+    scheduled restart never actually fired — `dumpsys activity services`
+    confirmed no `LoggingService` running afterward, and no `rideId=-1`
+    rows ever appeared, so this device doesn't quietly resurrect a killed
+    foreground service and silently mislog under the wrong ride — it just
+    stays dead with the notification going stale. Relaunched `MainActivity`
+    cold (confirmed via `dumpsys`/UI dump the process had actually changed
+    PID): the ride-restore fix correctly resumed the timer at the real
+    elapsed time (`05:25`, matching the actual gap), not `00:00` or a bogus
+    number. Tapped Stop Ride: the freshly-restarted `LoggingService` hit
+    the `rideId=-1` path exactly as predicted, and the new fallback
+    correctly found and closed the real ride (`endTime` set, duration
+    347.5s matching real elapsed time) — no ghost ride, no orphaned
+    `rideId=-1` data. Fix confirmed working against its actual target
+    failure, not just "compiles and doesn't crash."
+  - **Found and fixed: GPS point sparsity and the Step 8→today sensor-rate
+    drop (100Hz → 33-45Hz on 2026-07-16's three real rides) share one root
+    cause.** `insertOneGpsPoint()` called `getCurrentLocation()` fresh every
+    5 seconds — a one-shot request the GPS chip has to cold-reacquire each
+    time (worse with no A-GPS, per Step 8's finding), and the coroutine sat
+    blocked on `.await()` until it resolved. Since `lifecycleScope` runs on
+    the main dispatcher, and `onSensorChanged` also lands on the main
+    thread, a stalled GPS wait was starving sensor event delivery — matches
+    today's data showing GPS gap counts and sensor gap counts tracking each
+    other closely per ride (12/11, 5/6, 18/15). **Fixed**: replaced the
+    5-second polling loop with a continuous `FusedLocationProviderClient
+    .requestLocationUpdates()` subscription, started once when the ride
+    begins and stopped in `stopRide()` — results arrive via a
+    `LocationCallback` (a listener, not something `await()`-ed), so the
+    ride's coroutines are never blocked waiting on a fix. Kept the same
+    ~5s interval via `LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY,
+    5000L)`. `play-services-location` was already on 21.3.0, well past
+    where `LocationRequest.Builder` was introduced, so no dependency bump
+    needed. Verified indoors (no outdoor GPS fix available) that sensor
+    rate immediately returned to ~100Hz (99.8Hz measured over the test
+    ride) with the polling removed — real outdoor GPS-density validation
+    still pending 2026-07-17's rides.
+  - **Decision: fix GPS/sensor contention before treating Step 10 as
+    closed**, rather than moving on to Phase 2 (navigation) with it as a
+    fast-follow — the checklist explicitly gates Phase 2 on Step 10 being
+    reliable, and this affects every future ride's data quality, not just
+    an edge case.
+  - **Decision: keep and commit the AGP/Gradle version bump** (AGP
+    8.9.1→8.13.2, Gradle wrapper 8.11.1→8.13) that Android Studio's own
+    update had left sitting uncommitted in the working tree, rather than
+    reverting to the previously-pinned versions — matches what Studio
+    already built successfully with, avoids fighting the IDE's own
+    auto-update on every open.
+  - **Step 10 status: core logic now solid (crash-free, ride bookkeeping
+    holds up under a real simulated process-death), GPS/sensor fix in
+    place but only indoor-tested. Not yet marked done** — pending
+    2026-07-17's real outdoor rides to confirm (a) GPS point density
+    actually improves over today's 13-42%, (b) sensor rate holds near
+    ~100Hz under real concurrent GPS activity outdoors (not just indoors
+    with GPS failing fast), and (c) the service-kill fix holds up if it
+    happens to occur naturally rather than only under a forced test.
 
 ### Repo
 

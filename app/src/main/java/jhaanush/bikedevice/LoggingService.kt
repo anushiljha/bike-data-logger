@@ -11,19 +11,19 @@ import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import android.os.Build
-import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.lifecycleScope
 import com.google.android.gms.location.FusedLocationProviderClient
+import com.google.android.gms.location.LocationCallback
+import com.google.android.gms.location.LocationRequest
+import com.google.android.gms.location.LocationResult
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.tasks.await
 
 class LoggingService : LifecycleService(), SensorEventListener {
 
@@ -42,6 +42,7 @@ class LoggingService : LifecycleService(), SensorEventListener {
     private var rideId: Long = -1
     private val sensorBuffer = mutableListOf<SensorReading>()
     private var loggingJob: Job? = null
+    private var locationCallback: LocationCallback? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -81,45 +82,38 @@ class LoggingService : LifecycleService(), SensorEventListener {
     }
 
     private fun startLoggingLoops() {
+        startLocationUpdates()
         loggingJob = lifecycleScope.launch {
-            launch {
-                while (true) {
-                    insertOneGpsPoint()
-                    delay(5000)
-                }
-            }
-            launch {
-                while (true) {
-                    delay(5000)
-                    flushSensorBuffer()
-                }
+            while (true) {
+                delay(5000)
+                flushSensorBuffer()
             }
         }
     }
 
-    private suspend fun insertOneGpsPoint() {
+    private fun startLocationUpdates() {
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
             != PackageManager.PERMISSION_GRANTED) {
             return
         }
-        val location = try {
-            fusedLocationClient.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, null).await()
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            Log.d("GPS", "location request failed: ${e.message}")
-            return
+        val request = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 5000L).build()
+        val callback = object : LocationCallback() {
+            override fun onLocationResult(result: LocationResult) {
+                val location = result.lastLocation ?: return
+                lifecycleScope.launch {
+                    db.gpsPointDao().insert(
+                        GpsPoint(
+                            rideId = rideId,
+                            timestamp = System.currentTimeMillis(),
+                            lat = location.latitude,
+                            lon = location.longitude
+                        )
+                    )
+                }
+            }
         }
-        if (location != null) {
-            db.gpsPointDao().insert(
-                GpsPoint(
-                    rideId = rideId,
-                    timestamp = System.currentTimeMillis(),
-                    lat = location.latitude,
-                    lon = location.longitude
-                )
-            )
-        }
+        locationCallback = callback
+        fusedLocationClient.requestLocationUpdates(request, callback, mainLooper)
     }
 
     private suspend fun flushSensorBuffer() {
@@ -132,10 +126,15 @@ class LoggingService : LifecycleService(), SensorEventListener {
     private fun stopRide() {
         loggingJob?.cancel()
         sensorManager.unregisterListener(this)
+        locationCallback?.let { fusedLocationClient.removeLocationUpdates(it) }
+        locationCallback = null
         val endedRideId = rideId
         lifecycleScope.launch {
             flushSensorBuffer()
-            db.rideDao().setEndTime(endedRideId, System.currentTimeMillis())
+            val idToClose = if (endedRideId != -1L) endedRideId else db.rideDao().getActiveRide()?.id ?: -1L
+            if (idToClose != -1L) {
+                db.rideDao().setEndTime(idToClose, System.currentTimeMillis())
+            }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
                 stopForeground(STOP_FOREGROUND_REMOVE)
             } else {
