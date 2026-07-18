@@ -36,6 +36,7 @@ class LoggingService : LifecycleService(), SensorEventListener {
 
     private lateinit var sensorManager: SensorManager
     private var accelerometer: Sensor? = null
+    private var gyroscope: Sensor? = null
     private lateinit var fusedLocationClient: FusedLocationProviderClient
     private lateinit var db: AppDatabase
 
@@ -48,6 +49,7 @@ class LoggingService : LifecycleService(), SensorEventListener {
         super.onCreate()
         sensorManager = getSystemService(SENSOR_SERVICE) as SensorManager
         accelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
+        gyroscope = sensorManager.getDefaultSensor(Sensor.TYPE_GYROSCOPE)
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
         db = AppDatabase.getInstance(this)
     }
@@ -63,6 +65,7 @@ class LoggingService : LifecycleService(), SensorEventListener {
         rideId = intent?.getLongExtra(EXTRA_RIDE_ID, -1) ?: -1
         startForeground(NOTIFICATION_ID, buildNotification())
         accelerometer?.also { sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_GAME) }
+        gyroscope?.also { sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_GAME) }
         startLoggingLoops()
         return START_NOT_STICKY
     }
@@ -146,11 +149,16 @@ class LoggingService : LifecycleService(), SensorEventListener {
     }
 
     override fun onSensorChanged(event: SensorEvent) {
+        val sensorType = when (event.sensor.type) {
+            Sensor.TYPE_ACCELEROMETER -> "accelerometer"
+            Sensor.TYPE_GYROSCOPE -> "gyroscope"
+            else -> return
+        }
         sensorBuffer.add(
             SensorReading(
                 rideId = rideId,
                 timestamp = System.currentTimeMillis(),
-                sensorType = "accelerometer",
+                sensorType = sensorType,
                 x = event.values[0],
                 y = event.values[1],
                 z = event.values[2],

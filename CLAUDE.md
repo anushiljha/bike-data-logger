@@ -64,8 +64,11 @@ specifically was called out as the reliable elevation source). Steps 11-16
 were added to `BUILD_CHECKLIST_Phase1.md` (schema migration + one step per
 remaining sensor + a combined-verification step) to close this gap before
 Phase 3 starts. **Step 11 (schema migration) done and verified on the
-physical S4. Steps 12-16 (gyroscope, magnetometer, barometer, light,
-combined verification) not yet implemented.**
+physical S4. Step 12 (gyroscope) code written and building, NOT yet
+verified on-device — nothing installed on the phone, no DB pull, no
+rotation test done yet. Steps 13-16 (magnetometer, barometer, light,
+combined verification) not yet implemented. Next chat should verify Step 12
+before moving to Step 13 — don't skip the verify condition.**
 **Phase 2 (navigation): decision resolved and empirically verified, code not
 yet implemented.** Nav app is **Organic Maps** (`app.organicmaps`), not
 OsmAnd as originally planned — OsmAnd no longer supports this device's
@@ -769,6 +772,17 @@ Full plan: `Bike_Data_Logger_Project_Plan.md`. Step-by-step build order:
     AI-generated — "whatever Gemini built"). Functionally in place and not
     blocking any checklist work; a redesign/re-crop is deferred to later,
     not fixed now.
+- **Step 12 (gyroscope) — code written and building, NOT yet verified,
+  2026-07-17.** `LoggingService` now also registers `TYPE_GYROSCOPE` at the
+  same `SENSOR_DELAY_GAME` rate as the accelerometer. Since both sensors now
+  feed the same `onSensorChanged` callback, it branches on
+  `event.sensor.type` to tag each row `sensor_type='accelerometer'` or
+  `'gyroscope'` (an unrecognized sensor type is ignored via `else -> return`
+  — nothing else is registered yet). **Still needs Step 12's actual verify
+  condition:** install on the S4, pull the DB, confirm gyroscope row count
+  roughly matches the accelerometer's for the same window, and that values
+  move when the device is rotated. Do this before starting Step 13 —
+  don't skip the verify step just because the code compiles.
 - **Post-Step-10 investigation, 2026-07-17: Organic Maps died mid-ride —
   root-caused to the battery finding above, not a new/separate bug.** See
   "Post-Step-10 finding" above for the full battery-crash writeup; this is
