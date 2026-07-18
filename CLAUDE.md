@@ -20,6 +20,11 @@ Read this file before making any code suggestions or edits.
 - Ask directly when something is a real decision point, don't guess.
 - Commit at each verified checkpoint (not mid-step). Commit messages should
   match the actual diff.
+- **Priority order for code decisions (added 2026-07-17): correct/working
+  code first, battery efficiency second** — ahead of polish, UI, or new
+  features. Added after ride 26 showed the S4's battery crashing hard under
+  combined GPS+sensor logging, navigation, and screen-on load (see Phase 1
+  Step 10 section, "Post-Step-10 finding").
 
 ### Explain before acting
 
@@ -48,13 +53,32 @@ Read this file before making any code suggestions or edits.
 ## Where the project stands
 
 **Phase 0 (device prep): complete.**
-**Phase 1 (sensor logger app): complete — all 10 steps done and verified.**
-Step 10 (first real bike ride) closed out 2026-07-17 on ride 25's outdoor
-data, confirming the ride-bookkeeping and GPS/sensor-contention fixes hold
-up in real conditions. **Phase 2 (navigation) starts next.**
+**Phase 1 (sensor logger app): Steps 0-10 complete and verified.** Step 10
+(first real bike ride) closed out 2026-07-17 on ride 25's outdoor data,
+confirming the ride-bookkeeping and GPS/sensor-contention fixes hold up in
+real conditions.
+**Revised 2026-07-17: Phase 1 wasn't actually fully scoped.** Only the
+accelerometer was ever logged, despite gyroscope/magnetometer/barometer/
+light all being in-scope per the main plan (Section 3.2/6/7 — the barometer
+specifically was called out as the reliable elevation source). Steps 11-16
+were added to `BUILD_CHECKLIST_Phase1.md` (schema migration + one step per
+remaining sensor + a combined-verification step) to close this gap before
+Phase 3 starts. **Step 11 (schema migration) done and verified on the
+physical S4. Steps 12-16 (gyroscope, magnetometer, barometer, light,
+combined verification) not yet implemented.**
+**Phase 2 (navigation): decision resolved and empirically verified, code not
+yet implemented.** Nav app is **Organic Maps** (`app.organicmaps`), not
+OsmAnd as originally planned — OsmAnd no longer supports this device's
+Android version at all (dropped Android 5.x support in 2021, current builds
+require Android 7.0+). Confirmed working: installed via Play Store, offline
+maps downloaded, and an offline cycling-mode route to a real destination
+confirmed with WiFi disconnected. `BUILD_CHECKLIST_Phase2.md` (3 steps:
+Navigate button, confirm logging survives Organic Maps in the foreground,
+real combined ride) is written; no code from it exists yet.
 
 Full plan: `Bike_Data_Logger_Project_Plan.md`. Step-by-step build order:
-`BUILD_CHECKLIST_Phase1.md`.
+`BUILD_CHECKLIST_Phase1.md` (Steps 11-16 pending) and
+`BUILD_CHECKLIST_Phase2.md` (new, pending).
 
 ### Phase 0 — resolved decisions
 
@@ -66,10 +90,21 @@ Full plan: `Bike_Data_Logger_Project_Plan.md`. Step-by-step build order:
   be needed sooner than planned, to work around `adb run-as` being blocked on
   this stock Samsung build. Full narrative under Step 7.
 - **Carrier lock: not applicable** — project is WiFi-only by design.
-- **Navigation app: OsmAnd** (not yet implemented — that's Phase 2). Chosen
-  over Google Maps because Google ended Play Services updates for all of
-  Android Lollipop as of July 2024. Mitigation: lean on GMS-independent
-  tooling (OsmAnd, F-Droid/Aurora Store).
+- **Navigation app: Organic Maps** (`app.organicmaps`) — decision resolved
+  and verified, not yet implemented (that's Phase 2). Originally planned as
+  OsmAnd; revised 2026-07-17 when OsmAnd turned out to no longer support
+  this device's Android version at all (dropped Android 5.x in 2021,
+  current builds require Android 7.0+ — the same Play-Services-era problem
+  that ruled out Google Maps, just further along). Google Maps was also
+  directly tested and ruled out: confirmed via Google's own documentation
+  and an on-site offline test (WiFi disconnected) that it cannot compute
+  bicycling directions without a live connection — disqualifying given this
+  project's WiFi-only design. Organic Maps confirmed compatible (Android
+  5.0 minimum, matches this device exactly, no legacy-APK workaround
+  needed like Google Maps required) and confirmed working: offline
+  cycling-mode route to a real destination, GPS fix acquired outdoors in
+  10-15s, WiFi off throughout. Full decision history in the main plan's
+  Section 13 #2 changelog.
 - 16GB storage confirmed sufficient; battery visually inspected, no swelling.
 
 ### Phase 1 — build progress
@@ -633,6 +668,113 @@ Full plan: `Bike_Data_Logger_Project_Plan.md`. Step-by-step build order:
   - **Step 10 status: done.** All three checks the fixes were pending on
     are now confirmed against real outdoor data. Phase 2 (OsmAnd
     navigation) starts next.
+  - **Post-Step-10 finding, same day: battery crashes hard under combined
+    nav + logging load — now a standing priority.** Three more rides
+    recorded after Step 10 closed (ids 26, 27, 28 — 13.1, 18.7, 14.0 min).
+    Rides 27 and 28 logged continuously with no gaps. Ride 26 (17:02-17:15)
+    has a real ~418s gap: sensor/GPS logging stopped at 17:08:28, and the
+    ride's `endTime` wasn't set until 17:15:26 — matches the Step 10
+    fallback (`getActiveRide()`) correctly closing out a ride whose logging
+    had actually died earlier, not a new bug in that fix.
+    - **Root cause, confirmed via `dumpsys batterystats --history`:**
+      battery drained normally before the ride (18%→15% over ~23 min), then
+      crashed **15%→4% in ~13 minutes** during the ride — roughly 3.7x the
+      normal rate — with voltage sagging to 3.3-3.6V, while
+      `app.organicmaps` was the foreground app (run manually alongside
+      logging, ahead of Phase 2's own integration work). No reboot occurred
+      (single battery-history reset for the whole session), so this reads
+      as a severe sag/aggressive-power-save reaction under combined
+      GPS+sensor+navigation+screen-on load, not the phone fully dying —
+      most likely compounding on top of Step 7's already-confirmed
+      low-memory-killer behavior once battery hit a critical threshold.
+    - **Read as low-battery-driven, not a one-off RAM fluke** — battery
+      state getting critical is the primary trigger, with the OS's
+      already-known aggressive process-killing (Step 7) as the mechanism
+      that actually cuts logging off.
+    - **New standing priority: battery efficiency is priority #2, right
+      after correct/working code** — ahead of polish, UI, or new features.
+      Directly relevant to Phase 2, which pairs this app with Organic Maps
+      (a heavy app in its own right) for the first time — see
+      `BUILD_CHECKLIST_Phase2.md` Step 3.
+
+- **Step 11 (schema migration for multi-sensor logging) — done, verified on
+  the physical S4, 2026-07-17.** `SensorReading` gained `sensorType` (TEXT,
+  column `sensor_type`) and `scalarValue` (REAL nullable, column
+  `scalar_value`); `x`/`y`/`z` became nullable — the schema Section 6 of the
+  main plan always specified, laying groundwork for Steps 12-15's
+  gyroscope/magnetometer (vector, `x`/`y`/`z`) and barometer/light (scalar,
+  `scalarValue`). `AppDatabase` bumped 3→4.
+  - **First real Room `Migration` in this project, not
+    `fallbackToDestructiveMigration()`.** Every earlier version bump (Steps
+    6, 8) used the destructive fallback since the DB only held disposable
+    test data at the time; by Step 11 it held 28 real rides, so that same
+    default would have silently wiped them on next launch. Also removed
+    `fallbackToDestructiveMigration()` entirely (not just added the
+    migration alongside it) — if the migration path had ever failed to
+    match for any reason, keeping the fallback would silently wipe real
+    data instead of crashing loudly, which is the safer failure mode here.
+  - **SQLite can't relax a column's `NOT NULL` via `ALTER TABLE`**, so
+    `x`/`y`/`z` becoming nullable required the standard rebuild pattern:
+    create `sensor_readings_new` with the target schema, copy all rows
+    across (tagging every existing row `sensor_type='accelerometer'` since
+    that's the only sensor ever logged so far), drop the old table, rename
+    the new one into place, recreate the `rideId` index.
+  - **Migration took longer than expected on real hardware — not a bug,
+    just this device being slow.** Rebuilding a 742,278-row table is a real
+    piece of work on 2013-era eMMC storage. A DB pull taken only ~3 seconds
+    after launch caught the migration still mid-transaction (a 131MB
+    in-flight WAL, schema still showing the old version) — re-pulling a few
+    minutes later showed it complete (WAL fully checkpointed, `user_version`
+    at 4). Worth remembering if a "migrating…" indicator is ever needed for
+    a future schema change on this hardware.
+  - **Verified via DB pull:** all pre-existing data intact — 28 `rides`, 517
+    `gps_points`, 742,278 `sensor_readings`, every one correctly backfilled
+    `sensor_type='accelerometer'`/`scalar_value=NULL` with `x`/`y`/`z`
+    unchanged. No crash on launch.
+- **App icon and splash screen added, 2026-07-17 (not a checklist step —
+  branding, done alongside Step 11's build/install).** Both use a
+  user-provided bike-mounted-phone illustration (`device_bike_icon.png`,
+  repo root, untracked — source asset, not code).
+  - **Icon:** resized to the 5 standard launcher sizes (48/72/96/144/192px)
+    and dropped into `mipmap-{m,h,x,xx,xxx}hdpi/ic_launcher(_round).png`
+    (converted from the template's `.webp`). Deliberately left the
+    `mipmap-anydpi-v26` adaptive-icon XML/drawable layers untouched — that
+    path requires API 26+, and the S4 (API 21) never reads it, so touching
+    it would be effort spent on something the one real target device can't
+    use. (Only relevant if this is ever run on the emulator or a newer
+    phone, where the old default icon would still show.)
+  - **Splash screen:** added `androidx.core:core-splashscreen:1.0.1` — the
+    official backport of Android 12's SplashScreen API down to API 21
+    (matches this project's floor exactly), replacing the old
+    themed-background-plus-artificial-delay hack. New `Theme.App.Starting`
+    (in both `values/themes.xml` and `values-night/themes.xml`) sets
+    `windowSplashScreenBackground` and `windowSplashScreenAnimatedIcon` to
+    `@mipmap/ic_launcher` (reused, no new asset), falling back to
+    `Theme.BIkeDevice` after. `MainActivity.onCreate()` calls
+    `installSplashScreen()` as its first line (required ordering, before
+    `super.onCreate()`). Not a fixed-delay screen — shows only until the
+    first frame is actually ready. Confirmed minSdk stays at 21 after adding
+    the dependency (same check applied to every other dependency in this
+    project).
+  - **Bug found on-device: initial background color choice made the icon
+    invisible.** First attempt sampled `windowSplashScreenBackground`
+    (`#D88623`) directly from the icon's own gradient edge, intending a
+    cohesive look — but for a two-layer icon-on-background splash, a
+    background that closely matches the icon makes the icon blend into the
+    field instead of standing out, so the splash just read as a flat
+    orange screen. **Fixed:** switched to a deliberately contrasting dark
+    navy (`#14213D`) instead of color-matching the icon. Not yet
+    re-verified on-device (pending next install).
+  - **Icon: user feedback is it's too ugly as-is** (source illustration is
+    AI-generated — "whatever Gemini built"). Functionally in place and not
+    blocking any checklist work; a redesign/re-crop is deferred to later,
+    not fixed now.
+- **Post-Step-10 investigation, 2026-07-17: Organic Maps died mid-ride —
+  root-caused to the battery finding above, not a new/separate bug.** See
+  "Post-Step-10 finding" above for the full battery-crash writeup; this is
+  the same incident, just noting here that it was originally reported as
+  "the nav app died mid-ride" before the battery-history investigation
+  traced it to the actual cause.
 
 ### Repo
 
