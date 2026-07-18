@@ -150,9 +150,11 @@ class LoggingService : LifecycleService(), SensorEventListener {
             SensorReading(
                 rideId = rideId,
                 timestamp = System.currentTimeMillis(),
+                sensorType = "accelerometer",
                 x = event.values[0],
                 y = event.values[1],
-                z = event.values[2]
+                z = event.values[2],
+                scalarValue = null
             )
         )
     }
