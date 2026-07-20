@@ -96,8 +96,10 @@ Stop and confirm both Step 2 and Step 3 work independently before combining anyt
 
 ## Step 13 — Magnetometer
 
-- [ ] Register `TYPE_MAGNETIC_FIELD` at ~10Hz, tagged `sensor_type='magnetometer'` — deliberately slower than accel/gyro, per Section 7's rationale that heading changes slowly relative to motion.
+- [x] Register `TYPE_MAGNETIC_FIELD` at ~10Hz, tagged `sensor_type='magnetometer'` — deliberately slower than accel/gyro, per Section 7's rationale that heading changes slowly relative to motion.
 - **Verify:** DB pull shows roughly 1 magnetometer row per 5 accelerometer rows for the same window, and values shift when the phone's heading changes.
+- **Verified on the physical S4, 2026-07-20.** Ride 31 (47.4s): 2362 accelerometer rows (~49.8Hz) vs 789 magnetometer rows (~16.6Hz) — magnetometer's requested 10Hz period (`100_000` microseconds) is honored as a floor rather than exact, same already-understood "requested rate is a hint, not a guarantee" behavior Step 8 found for accel/gyro, but it's still clearly and consistently slower than accelerometer, confirming the throttling works. Magnetometer values were flat while the phone was still (x=37.0, y=22.2, z=-76.0 for the first several rows) then shifted to a clearly different reading by the end of the rotation window (x=-14.2, y=-6.9, z=-10.3), with a ~150µT peak-to-peak spread across the ride — real heading response, not noise.
+- **Anomaly noted, not investigated — deferred to Step 16:** gyroscope logged almost exactly 2x the accelerometer's row count this ride (4713 vs 2362), where Step 12's ride had them nearly identical (3720 vs 3713) despite both being registered at the same `SENSOR_DELAY_GAME` constant in both cases. Possibly main-thread contention from adding the third (magnetometer) listener. Not part of this step's verify condition; worth checking specifically when Step 16 registers all five sensors together and compares against Step 10's known-good accel/gyro rate.
 
 ## Step 14 — Barometer
 
