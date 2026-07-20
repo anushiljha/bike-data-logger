@@ -80,19 +80,31 @@ accelerometer/gyroscope rate versus Step 10's known-good baseline (~98-100Hz
 held), and also explains Step 13's one-off "gyro logged 2x accelerometer"
 reading as a fluke, not a systematic issue. Full details in
 `BUILD_CHECKLIST_Phase1.md` Steps 11-16.
-**Phase 2 (navigation): decision resolved and empirically verified, code not
-yet implemented.** Nav app is **Organic Maps** (`app.organicmaps`), not
+**Phase 2 (navigation): underway. Step 1 done and verified on the physical
+S4, 2026-07-20.** Nav app is **Organic Maps** (`app.organicmaps`), not
 OsmAnd as originally planned — OsmAnd no longer supports this device's
 Android version at all (dropped Android 5.x support in 2021, current builds
 require Android 7.0+). Confirmed working: installed via Play Store, offline
 maps downloaded, and an offline cycling-mode route to a real destination
 confirmed with WiFi disconnected. `BUILD_CHECKLIST_Phase2.md` (3 steps:
 Navigate button, confirm logging survives Organic Maps in the foreground,
-real combined ride) is written; no code from it exists yet.
+real combined ride) is written.
+- **Step 1 (Navigate button) — done, verified 2026-07-20.** New
+  `btnNavigate` in `activity_main.xml`, wired in `MainActivity.onCreate()`
+  to `packageManager.getLaunchIntentForPackage("app.organicmaps")` →
+  `startActivity()` (null-checked since the API is nullable-returning, not
+  extra defensiveness — no destination passed, no ride/logging state
+  touched, matching this step's deliberately narrow scope). Verified via
+  `adb`: same no-screen-mirroring `uiautomator dump` + `input tap` method
+  used since Steps 7/9, then `dumpsys window windows` confirmed
+  `mCurrentFocus`/`mFocusedApp` both switched to
+  `app.organicmaps/.DownloadResourcesActivity` after the tap.
+- **Steps 2-3 (logging survives Organic Maps foregrounded; real combined
+  ride) — not started.**
 
 Full plan: `Bike_Data_Logger_Project_Plan.md`. Step-by-step build order:
 `BUILD_CHECKLIST_Phase1.md` (Steps 0-16 all complete) and
-`BUILD_CHECKLIST_Phase2.md` (new, pending — this is what's next).
+`BUILD_CHECKLIST_Phase2.md` (Step 1 done, Steps 2-3 next).
 
 ### Phase 0 — resolved decisions
 

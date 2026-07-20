@@ -16,16 +16,20 @@ track, can happen before, after, or interleaved with this one.
 
 ---
 
-## Step 1 — Add a "Navigate" button
+## Step 1 — Add a "Navigate" button — done, verified on the physical S4, 2026-07-20
 
-- [ ] Add a button to `MainActivity` that launches Organic Maps via
+- [x] Add a button to `MainActivity` that launches Organic Maps via
   `packageManager.getLaunchIntentForPackage("app.organicmaps")` — an
   explicit launch, not a `geo:`/`ACTION_VIEW` intent, since the nav app
   choice is already made and there's no reason to show a chooser dialog.
-- [ ] No destination passed yet — the button just opens Organic Maps to
+- [x] No destination passed yet — the button just opens Organic Maps to
   wherever it last was. Nothing about your own ride/logging state needs to
   change for this step.
 - **Verify:** Tapping the button switches from your app to Organic Maps.
+  Confirmed via `adb`: after tapping (coordinates found via `uiautomator
+  dump`, same no-screen-mirroring method used since Step 7/9),
+  `dumpsys window windows` showed `mCurrentFocus` and `mFocusedApp` both
+  switch to `app.organicmaps/.DownloadResourcesActivity`.
 
 ## Step 2 — Confirm logging survives Organic Maps taking the screen
 
