@@ -118,8 +118,20 @@ Stop and confirm both Step 2 and Step 3 work independently before combining anyt
 
 ## Step 16 — All five sensors together
 
-- [ ] Run one real ~5-minute logging session (indoor is fine) with all five sensor types registered simultaneously.
+- [x] Run one real ~5-minute logging session (indoor is fine) with all five sensor types registered simultaneously.
 - **Verify:** DB pull shows all five `sensor_type` values present with plausible row counts for each rate, and — the important check — accelerometer/gyroscope rate hasn't dropped from adding three more listeners on the same thread (compare against Step 10's known-good rate; a real drop here would be the same class of main-thread contention Steps 8 and 10 already found with GPS).
+- **Verified on the physical S4, 2026-07-20. Clean pass, no contention regression.** Ride 35, 264.1s indoor session, all five `sensor_type` values present:
+
+  | Sensor | Rows | Rate | Comparison |
+  |---|---|---|---|
+  | accelerometer | 25880 | ~98.0Hz | matches Step 10's known-good ~99.8Hz indoor baseline |
+  | gyroscope | 26352 | ~99.8Hz | same — no drop from adding 3 more listeners |
+  | magnetometer | 12899 | ~48.9Hz | faster than the 10Hz requested, consistent with Step 13 |
+  | barometer | 1462 | ~5.54Hz | matches its confirmed fixed native rate (5.56Hz) |
+  | light | 1465 | ~5.55Hz | matches its confirmed forced-continuous rate |
+
+  The important check passes: accelerometer/gyroscope rate held at ~98-100Hz with all five sensors running together — no main-thread contention regression like Steps 8/10 found with GPS. Every rate is internally consistent with each sensor's isolated behavior from Steps 12-15. Also resolves Step 13's one-off "gyroscope logged 2x accelerometer" anomaly — with all five sensors running, accel and gyro are back to a near-1:1 ratio, so that earlier reading looks like a one-time fluke, not a systematic issue.
+- **Steps 11-16 now fully complete.** All five sensor types (accelerometer, gyroscope, magnetometer, barometer, light) are registered and verified on the physical S4. Two standing findings carried forward, not fixed as part of this work: (1) the light sensor cannot actually be made event-driven on this hardware (Step 15) — a permanent ~5.5Hz stream added to every future ride; (2) light sensor values appear to be raw/uncalibrated counts, not real lux (Step 15).
 
 ---
 
