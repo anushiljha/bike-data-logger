@@ -63,12 +63,23 @@ light all being in-scope per the main plan (Section 3.2/6/7 — the barometer
 specifically was called out as the reliable elevation source). Steps 11-16
 were added to `BUILD_CHECKLIST_Phase1.md` (schema migration + one step per
 remaining sensor + a combined-verification step) to close this gap before
-Phase 3 starts. **Step 11 (schema migration) done and verified on the
-physical S4. Step 12 (gyroscope) code written and building, NOT yet
-verified on-device — nothing installed on the phone, no DB pull, no
-rotation test done yet. Steps 13-16 (magnetometer, barometer, light,
-combined verification) not yet implemented. Next chat should verify Step 12
-before moving to Step 13 — don't skip the verify condition.**
+Phase 3 starts. **Steps 11-16 all done and verified on the physical S4 as
+of 2026-07-20 — this gap is now fully closed.** Gyroscope, magnetometer,
+and barometer all matched expectations (with the barometer's expected
+pressure *range* corrected from sea-level to raw-ambient, see Step 14's
+notes). The light sensor (Step 15) is registered correctly per the app's
+own code, but this specific hardware cannot actually deliver on-change
+behavior for it — it forces a continuous ~5.5Hz stream regardless of
+requested rate, confirmed by explicitly testing a 60-second requested
+period with no effect. That's a standing, not-yet-addressed battery/storage
+cost on every future ride, and light sensor values look like raw
+uncalibrated counts (0/1) rather than real lux — worth remembering before
+using light data quantitatively in the Section 8-9 analysis pipeline. Step
+16's combined run confirmed all five sensors together don't regress
+accelerometer/gyroscope rate versus Step 10's known-good baseline (~98-100Hz
+held), and also explains Step 13's one-off "gyro logged 2x accelerometer"
+reading as a fluke, not a systematic issue. Full details in
+`BUILD_CHECKLIST_Phase1.md` Steps 11-16.
 **Phase 2 (navigation): decision resolved and empirically verified, code not
 yet implemented.** Nav app is **Organic Maps** (`app.organicmaps`), not
 OsmAnd as originally planned — OsmAnd no longer supports this device's
@@ -80,8 +91,8 @@ Navigate button, confirm logging survives Organic Maps in the foreground,
 real combined ride) is written; no code from it exists yet.
 
 Full plan: `Bike_Data_Logger_Project_Plan.md`. Step-by-step build order:
-`BUILD_CHECKLIST_Phase1.md` (Steps 11-16 pending) and
-`BUILD_CHECKLIST_Phase2.md` (new, pending).
+`BUILD_CHECKLIST_Phase1.md` (Steps 0-16 all complete) and
+`BUILD_CHECKLIST_Phase2.md` (new, pending — this is what's next).
 
 ### Phase 0 — resolved decisions
 
