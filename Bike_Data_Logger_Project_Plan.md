@@ -6,16 +6,20 @@ A repurposed Samsung Galaxy S4 as a bike-mounted telemetry device: navigate, log
 
 | Field | Value |
 |---|---|
-| Version | 0.1 (Draft) |
+| Version | 0.5 |
 | Owner | Anushil |
-| Status | Planning — no code written yet |
-| Last updated | 2026-07-09 |
+| Status | Phase 1 (Steps 1-10) complete, Steps 11-16 (multi-sensor) in progress, Phase 2 (navigation) decision resolved, code not yet implemented |
+| Last updated | 2026-07-20 |
 
 **Change log**
 
 | Date | Version | Change | Author |
 |---|---|---|---|
 | 2026-07-09 | 0.1 | Initial draft plan created | Claude |
+| 2026-07-17 | 0.2 | Section 13 backfilled: decisions #1 (OS path), #2 (nav app), #6 (rooting method) marked Resolved with actual reasoning from Phase 0/1 build notes (see `CLAUDE.md`). Decision #3 (data transfer) left OPEN — USB has been used for every data pull so far, but that reflected dev/debugging convenience, not a considered choice. | Claude |
+| 2026-07-17 | 0.3 | Decision #3 (data transfer) resolved to USB — confirmed reliable across Phase 1, WiFi ADB retained as an existing fallback rather than the primary path. | Claude |
+| 2026-07-17 | 0.4 | Decision #2 (nav app) reopened from Resolved:OsmAnd to Testing:Google Maps — on-device evidence (Maps already installed, functional, offline maps downloaded) outweighs the earlier theoretical Play-Services-cutoff concern. Gray-dot GPS symptom identified as the same known no-SIM/no-A-GPS limitation from Phase 1, not a Maps-specific issue. | Claude |
+| 2026-07-20 | 0.5 | Decision #2 (nav app) re-resolved from Testing:Google Maps to Resolved:Organic Maps — Google Maps directly tested and ruled out (no offline bicycling directions, confirmed via Google's docs and an on-site WiFi-off test); OsmAnd found to no longer support this device's Android 5.x at all (dropped in 2021). Organic Maps confirmed compatible and working (offline cycling route to a real destination, WiFi disconnected). | Claude |
 
 > This document is meant to be edited directly as decisions change. Anything marked **[OPEN]** in Section 13 is an unresolved decision — update the log entry when you resolve it instead of just changing the text elsewhere, so there's a record of *why* it changed.
 
@@ -77,7 +81,7 @@ Fill this in before doing anything else — it determines several downstream dec
 | Item | How to find it | Your value |
 |---|---|---|
 | Exact model number | Settings → About phone → Model number (or under the battery on older units) | _________ (expect `SCH-I545` if Verizon) |
-| IMEI | Dial `*#06#` or Settings → About phone → Status | _________ |
+| IMEI | Dial `*#06#` or Settings → About phone → Status | `990003378910794` |
 | Current Android version | Settings → About phone → Android version | _________ (stock ceiling is Android 5.0.1 for this model) |
 | Build number | Settings → About phone → Build number | _________ |
 | Battery health / swelling check | Visual inspection — do this before mounting anything on a moving bike | Pass / Fail |
@@ -176,11 +180,9 @@ This is the piece most affected by the phone's age, so it's broken out on its ow
 | Waze | Uncertain — similar version constraints to Maps likely | No | Yes | Unverified |
 | Browser-based Google Maps (mobile site) | Yes | No | Yes | Low, but worse UX for turn-by-turn |
 
-**Recommendation (default, open to correction):** Use **OsmAnd** as the primary navigation app. It's built for exactly this situation — old devices, offline-first, no forced version cutoff — and it decouples your navigation reliability from Google's release policy. Your custom logger app doesn't care which navigation app is on screen; it logs sensors/GPS independently either way, so this choice doesn't block anything else in the plan.
+**Resolved (2026-07-17 — see Section 13 #2):** Nav app is **Organic Maps** (`app.organicmaps`). Path to that answer: Google Maps (already installed, v10.63.6) was directly tested and ruled out — confirmed via Google's own documentation and an on-site offline test (WiFi disconnected) that it cannot compute bicycling directions without a live connection, disqualifying given this project's WiFi-only design. OsmAnd, the original default in the fallback matrix above, turned out to no longer support this device's Android version at all — it dropped Android 5.x support in 2021, and current builds require Android 7.0+. Organic Maps was then tried and confirmed compatible (Android 5.0 minimum, matches this device exactly, no legacy-APK workaround needed) and confirmed working: installed via Play Store, offline maps downloaded, and an offline cycling-mode route to a real destination confirmed with WiFi disconnected.
 
-If you specifically want the Google Maps UI/routing quality, sideloading an archived APK is the fallback, with the caveat that it may degrade over time without a clear failure point (silent staleness rather than a hard error).
-
-This is logged as **Open Decision #2** in Section 13 — resolve it before Phase 2.
+This was logged as **Open Decision #2** in Section 13, now Resolved.
 
 ---
 
@@ -327,7 +329,7 @@ Phases 3–5 can overlap — you don't need to stop collecting data before start
 
 | Risk | Impact | Likelihood | Mitigation |
 |---|---|---|---|
-| Google Maps incompatible/degrades on old Android | Navigation feature unreliable | Medium–High | Default to OsmAnd (Section 5); logger is independent of nav app either way |
+| Google Maps incompatible/degrades on old Android | Navigation feature unreliable | Resolved | Ruled out (no offline bicycling directions); using Organic Maps instead (Section 5) — logger is independent of nav app either way |
 | Bootloader unlock/root bricks the device | Total device loss | Low–Medium | Full backup first; verify method against exact model/build number before flashing anything |
 | GPS drift in urban areas/under tree cover | Noisy location/speed data | Medium | Filter by `accuracy_m`; smooth with a moving average or Kalman filter in the pipeline |
 | Battery drain mid-ride | Incomplete ride data | Medium | Power bank; log battery %; tune sampling rates if drain is excessive |
@@ -353,12 +355,12 @@ Update this table as decisions get made — don't just silently edit earlier sec
 
 | # | Decision | Status | Options | Current recommendation |
 |---|---|---|---|---|
-| 1 | OS path: stay stock/rooted vs. custom ROM | **OPEN** | (a) Stay on stock/rooted Android 5.0.1 (b) Flash LineageOS 14.1 (Android 7.1, unofficial build) | (a) — simpler Google Play Services compatibility, avoids extra flashing risk |
-| 2 | Navigation app | **OPEN** | Google Maps (sideloaded old APK) / OsmAnd / Waze | OsmAnd — offline-first, actively maintained for old Android (Section 5) |
-| 3 | Data transfer method | **OPEN** | USB / local WiFi transfer / cloud sync | WiFi local transfer — no cloud dependency, keeps data private |
+| 1 | OS path: stay stock/rooted vs. custom ROM | **RESOLVED** | (a) Stay on stock/rooted Android 5.0.1 (b) Flash LineageOS 14.1 (Android 7.1, unofficial build) | (a), but forced rather than chosen — build `LRX22C.I545VRUGOF1` has a permanently eFuse-locked bootloader, so no custom ROM (LineageOS/TWRP/CWM) is possible on this exact firmware at all. A 2023 community chainload exploit exists as a theoretical advanced option but is out of scope. |
+| 2 | Navigation app | **RESOLVED** | Google Maps (already installed) / OsmAnd / Organic Maps / Waze | **Organic Maps** (`app.organicmaps`) — Google Maps was tested and ruled out (no offline bicycling directions, confirmed via Google's docs and an on-site WiFi-off test); OsmAnd turned out to no longer support this device's Android 5.x at all (dropped in 2021). Organic Maps confirmed compatible (Android 5.0 minimum) and confirmed working: offline maps downloaded, offline cycling-mode route to a real destination with WiFi disconnected. |
+| 3 | Data transfer method | **RESOLVED** | USB / local WiFi transfer / cloud sync | USB (`adb pull` / `su -c cp` + `adb pull`) — confirmed reliable across every Phase 1 data pull (Steps 7–10). `adb tcpip`/WiFi ADB already exists as a proven fallback (used to work around a separate USB install-specific flakiness in Step 10), so it's available without new setup if the USB path ever degrades again. |
 | 4 | App language | Resolved | Kotlin vs. Java | Kotlin |
 | 5 | ETA modeling approach | **OPEN** (revisit in Phase 5) | scikit-learn regression vs. more complex ML | Start simple (linear/tree regression); escalate only if underfitting |
-| 6 | Rooting method for SCH-I545 specifically | **OPEN** | TBD — needs verification against exact build number | Research once Section 3.1 checklist is filled in |
+| 6 | Rooting method for SCH-I545 specifically | **RESOLVED** | TBD — needs verification against exact build number | KingRoot 4.5.0 — not the originally-identified KingoRoot, whose one-click flow now fails with a JSON parse error against its live backend (a decade-old app calling a backend whose response format has since changed). KingRoot 4.5.0 is a different company despite the similar name, and is independently documented as working for this exact firmware. Executed during Phase 1 Step 7 — needed sooner than planned, to work around `adb run-as` being blocked (`ro.debuggable=0`) on this stock Samsung build. |
 
 ---
 
