@@ -38,6 +38,7 @@ class LoggingService : LifecycleService(), SensorEventListener {
     private var accelerometer: Sensor? = null
     private var gyroscope: Sensor? = null
     private var magnetometer: Sensor? = null
+    private var barometer: Sensor? = null
     private lateinit var fusedLocationClient: FusedLocationProviderClient
     private lateinit var db: AppDatabase
 
@@ -52,6 +53,7 @@ class LoggingService : LifecycleService(), SensorEventListener {
         accelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
         gyroscope = sensorManager.getDefaultSensor(Sensor.TYPE_GYROSCOPE)
         magnetometer = sensorManager.getDefaultSensor(Sensor.TYPE_MAGNETIC_FIELD)
+        barometer = sensorManager.getDefaultSensor(Sensor.TYPE_PRESSURE)
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
         db = AppDatabase.getInstance(this)
     }
@@ -69,6 +71,7 @@ class LoggingService : LifecycleService(), SensorEventListener {
         accelerometer?.also { sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_GAME) }
         gyroscope?.also { sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_GAME) }
         magnetometer?.also { sensorManager.registerListener(this, it, 100_000) }
+        barometer?.also { sensorManager.registerListener(this, it, 1_000_000) }
         startLoggingLoops()
         return START_NOT_STICKY
     }
@@ -152,24 +155,33 @@ class LoggingService : LifecycleService(), SensorEventListener {
     }
 
     override fun onSensorChanged(event: SensorEvent) {
-        val sensorType = when (event.sensor.type) {
-            Sensor.TYPE_ACCELEROMETER -> "accelerometer"
-            Sensor.TYPE_GYROSCOPE -> "gyroscope"
-            Sensor.TYPE_MAGNETIC_FIELD -> "magnetometer"
-            else -> return
-        }
-        sensorBuffer.add(
-            SensorReading(
+        val reading = when (event.sensor.type) {
+            Sensor.TYPE_ACCELEROMETER -> vectorReading("accelerometer", event)
+            Sensor.TYPE_GYROSCOPE -> vectorReading("gyroscope", event)
+            Sensor.TYPE_MAGNETIC_FIELD -> vectorReading("magnetometer", event)
+            Sensor.TYPE_PRESSURE -> SensorReading(
                 rideId = rideId,
                 timestamp = System.currentTimeMillis(),
-                sensorType = sensorType,
-                x = event.values[0],
-                y = event.values[1],
-                z = event.values[2],
-                scalarValue = null
+                sensorType = "barometer",
+                x = null,
+                y = null,
+                z = null,
+                scalarValue = event.values[0]
             )
-        )
+            else -> return
+        }
+        sensorBuffer.add(reading)
     }
+
+    private fun vectorReading(sensorType: String, event: SensorEvent) = SensorReading(
+        rideId = rideId,
+        timestamp = System.currentTimeMillis(),
+        sensorType = sensorType,
+        x = event.values[0],
+        y = event.values[1],
+        z = event.values[2],
+        scalarValue = null
+    )
 
     override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
 
