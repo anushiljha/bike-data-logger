@@ -39,7 +39,6 @@ class LoggingService : LifecycleService(), SensorEventListener {
     private var gyroscope: Sensor? = null
     private var magnetometer: Sensor? = null
     private var barometer: Sensor? = null
-    private var lightSensor: Sensor? = null
     private lateinit var fusedLocationClient: FusedLocationProviderClient
     private lateinit var db: AppDatabase
 
@@ -55,7 +54,6 @@ class LoggingService : LifecycleService(), SensorEventListener {
         gyroscope = sensorManager.getDefaultSensor(Sensor.TYPE_GYROSCOPE)
         magnetometer = sensorManager.getDefaultSensor(Sensor.TYPE_MAGNETIC_FIELD)
         barometer = sensorManager.getDefaultSensor(Sensor.TYPE_PRESSURE)
-        lightSensor = sensorManager.getDefaultSensor(Sensor.TYPE_LIGHT)
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
         db = AppDatabase.getInstance(this)
     }
@@ -74,7 +72,6 @@ class LoggingService : LifecycleService(), SensorEventListener {
         gyroscope?.also { sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_GAME) }
         magnetometer?.also { sensorManager.registerListener(this, it, 100_000) }
         barometer?.also { sensorManager.registerListener(this, it, 1_000_000) }
-        lightSensor?.also { sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_NORMAL) }
         startLoggingLoops()
         return START_NOT_STICKY
     }
@@ -163,7 +160,6 @@ class LoggingService : LifecycleService(), SensorEventListener {
             Sensor.TYPE_GYROSCOPE -> vectorReading("gyroscope", event)
             Sensor.TYPE_MAGNETIC_FIELD -> vectorReading("magnetometer", event)
             Sensor.TYPE_PRESSURE -> scalarReading("barometer", event)
-            Sensor.TYPE_LIGHT -> scalarReading("light", event)
             else -> return
         }
         sensorBuffer.add(reading)

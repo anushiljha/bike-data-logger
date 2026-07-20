@@ -80,6 +80,25 @@ accelerometer/gyroscope rate versus Step 10's known-good baseline (~98-100Hz
 held), and also explains Step 13's one-off "gyro logged 2x accelerometer"
 reading as a fluke, not a systematic issue. Full details in
 `BUILD_CHECKLIST_Phase1.md` Steps 11-16.
+**2026-07-20: light sensor removed from `LoggingService` entirely, and a
+real CSV export bug fixed.** Given the light sensor's standing cost noted
+above (forced ~5.5Hz continuous stream, no way to rate-limit it, and only
+raw uncalibrated 0/1 counts rather than real lux), it was pure battery/
+storage cost with no analyzable data behind it — cut per the
+correctness-then-battery priority, rather than kept "just in case." Sensor
+registration, the `onSensorChanged` branch, and the `Sensor` field were all
+removed (not just disabled), so the app now logs accelerometer/gyroscope/
+magnetometer/barometer only. Separately: `MainActivity.exportMostRecentRide()`
+had never been updated after Step 11 added `sensorType`/`scalarValue` to
+`SensorReading` — the exported `_sensors.csv` still wrote only the Step
+6-era `x,y,z` columns, so every ride exported since Step 12 (2026-07-17
+onward) had gyroscope/accelerometer/magnetometer rows indistinguishable
+from each other in the CSV, and barometer/light rows exported as
+empty columns (their real data lived in `scalarValue`, which wasn't
+written at all). Fixed by adding `sensorType,scalarValue` to the CSV
+header/rows. The underlying `bike_data.db` was never affected — only past
+CSV exports are incomplete; a re-export from the DB would recover the full
+data if needed.
 **Phase 2 (navigation): underway. Step 1 done and verified on the physical
 S4, 2026-07-20.** Nav app is **Organic Maps** (`app.organicmaps`), not
 OsmAnd as originally planned — OsmAnd no longer supports this device's

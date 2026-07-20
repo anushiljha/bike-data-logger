@@ -144,8 +144,8 @@ class MainActivity : AppCompatActivity() {
                 gpsPoints.forEach { out.println("${it.id},${it.rideId},${it.timestamp},${it.lat},${it.lon}") }
             }
             File(dir, "ride_${ride.id}_sensors.csv").printWriter().use { out ->
-                out.println("id,rideId,timestamp,x,y,z")
-                sensorReadings.forEach { out.println("${it.id},${it.rideId},${it.timestamp},${it.x},${it.y},${it.z}") }
+                out.println("id,rideId,timestamp,sensorType,x,y,z,scalarValue")
+                sensorReadings.forEach { out.println("${it.id},${it.rideId},${it.timestamp},${it.sensorType},${it.x},${it.y},${it.z},${it.scalarValue}") }
             }
             dir
         }
