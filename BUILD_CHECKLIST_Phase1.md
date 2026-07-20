@@ -80,4 +80,41 @@ Stop and confirm both Step 2 and Step 3 work independently before combining anyt
 
 ---
 
-Only after Step 10 works reliably does it make sense to add navigation integration (Section 5 of the main plan) or start on the analysis pipeline (Section 8-9) — those are separate, independent tracks once the logger itself is solid.
+**Gap found 2026-07-17: Phase 1's own stated scope (Section 1 of the main plan — "logs sensor + GPS data") was never fully built.** Only the accelerometer was ever wired up (Step 6); gyroscope, magnetometer, barometer, and light — all listed as present hardware in Section 3.2, all with defined sampling rates in Section 7 — were not. This matters concretely: the barometer was specifically called out as the *reliable* elevation source (GPS altitude is the noisy one), and Section 12's elevation cross-validation test can't run without it. Steps 11-16 close this gap.
+
+## Step 11 — Extend the sensor schema for multiple types
+
+- [ ] Add `sensor_type` (TEXT) and `scalar_value` (REAL, nullable) columns to `SensorReading`; make `x`/`y`/`z` nullable — this is the schema Section 6 of the main plan always specified, only the accelerometer-only version got built in Step 6.
+- **Important, different from every earlier schema bump:** Steps 6 and 8 both used `fallbackToDestructiveMigration()` because the DB only held disposable test data at the time. That's no longer true — the device now holds 25+ real rides. Using `fallbackToDestructiveMigration()` here would silently wipe all of it on next launch. Either write a real Room `Migration`, or explicitly export/back up every existing ride via the Step 9 CSV path first and accept the reset as a deliberate, informed choice — not the default.
+- **Verify:** App launches without crashing, and a DB pull afterward shows every pre-existing `rides`/`gps_points`/`sensor_readings` row still intact.
+
+## Step 12 — Gyroscope
+
+- [x] Register `TYPE_GYROSCOPE` alongside the existing accelerometer listener, same rate (`SENSOR_DELAY_GAME`), tagged `sensor_type='gyroscope'`, `x`/`y`/`z` populated, `scalar_value` null.
+- **Verify:** DB pull shows a gyroscope row roughly matching the accelerometer row count for the same window (real hardware rate may land near ~100Hz per Step 8's finding, not exactly 50Hz — that's already-understood behavior, not a new bug), and values move when the device is rotated.
+- **Verified on the physical S4, 2026-07-20.** Ride 30 (60.2s): 3713 accelerometer rows vs 3720 gyroscope rows — near-identical, as expected from both being registered at the same rate. Rotating the phone by hand during the ride produced gyroscope x/y/z swinging from about -6.7 to +4.9 rad/s, clearly distinct from idle noise (~±0.05 rad/s seen in the rows before/after the rotation window). Ride closed cleanly (`endTime` set, no ghost ride).
+
+## Step 13 — Magnetometer
+
+- [ ] Register `TYPE_MAGNETIC_FIELD` at ~10Hz, tagged `sensor_type='magnetometer'` — deliberately slower than accel/gyro, per Section 7's rationale that heading changes slowly relative to motion.
+- **Verify:** DB pull shows roughly 1 magnetometer row per 5 accelerometer rows for the same window, and values shift when the phone's heading changes.
+
+## Step 14 — Barometer
+
+- [ ] Register `TYPE_PRESSURE` at ~1Hz, tagged `sensor_type='barometer'`, logged via `scalar_value` (hPa) — `x`/`y`/`z` null, this is a scalar sensor.
+- Note: unlike accelerometer/GPS, the emulator's Extended Controls may not simulate barometer input — this may need direct verification on the S4 rather than the emulator, same pattern as GPS ultimately needed.
+- **Verify:** DB pull shows barometer rows around 1/second with plausible sea-level-range pressure values (~1000-1030 hPa).
+
+## Step 15 — Light
+
+- [ ] Register `TYPE_LIGHT`, on-change — no fixed `SENSOR_DELAY_GAME`, since Section 7 specifies this one as event-driven, not polled. Tagged `sensor_type='light'`, logged via `scalar_value`.
+- **Verify:** DB pull shows light rows only when the sensor is covered/uncovered during the test window, not a constant stream — confirms it's genuinely on-change.
+
+## Step 16 — All five sensors together
+
+- [ ] Run one real ~5-minute logging session (indoor is fine) with all five sensor types registered simultaneously.
+- **Verify:** DB pull shows all five `sensor_type` values present with plausible row counts for each rate, and — the important check — accelerometer/gyroscope rate hasn't dropped from adding three more listeners on the same thread (compare against Step 10's known-good rate; a real drop here would be the same class of main-thread contention Steps 8 and 10 already found with GPS).
+
+---
+
+Only after Step 16 works reliably does it make sense to add navigation integration (Section 5 of the main plan) or start on the analysis pipeline (Section 8-9) — those are separate, independent tracks once the logger itself is solid. Steps 11-16 don't block Phase 2 (navigation doesn't touch sensors) and can happen in either order relative to it — but they should land before Phase 3's real field data collection ramps up, since every ride logged before then is permanently missing gyroscope/magnetometer/barometer/light data.
