@@ -103,9 +103,10 @@ Stop and confirm both Step 2 and Step 3 work independently before combining anyt
 
 ## Step 14 — Barometer
 
-- [ ] Register `TYPE_PRESSURE` at ~1Hz, tagged `sensor_type='barometer'`, logged via `scalar_value` (hPa) — `x`/`y`/`z` null, this is a scalar sensor.
+- [x] Register `TYPE_PRESSURE` at ~1Hz, tagged `sensor_type='barometer'`, logged via `scalar_value` (hPa) — `x`/`y`/`z` null, this is a scalar sensor.
 - Note: unlike accelerometer/GPS, the emulator's Extended Controls may not simulate barometer input — this may need direct verification on the S4 rather than the emulator, same pattern as GPS ultimately needed.
 - **Verify:** DB pull shows barometer rows around 1/second with plausible sea-level-range pressure values (~1000-1030 hPa).
+- **Verified on the physical S4, 2026-07-20 — with a correction to this step's own expectation.** `dumpsys sensorservice` confirmed this specific unit's barometer (Bosch, `android.sensor.pressure`) is fixed-rate: `minRate=maxRate=5.56Hz`, no batching — so the requested 1Hz period was never going to be honored. Ride 32 (59.9s) logged 328 barometer rows = ~5.48Hz, matching that fixed native rate almost exactly, same "requested rate is a hint not a guarantee" pattern already seen with accel/gyro/magnetometer. Values were a consistent ~980.0-980.2 hPa (avg 980.07), below the ~1000-1030 hPa this step assumed — but that assumption was wrong, not the sensor: Android's `TYPE_PRESSURE` reports raw ambient station pressure, not sea-level-corrected pressure, and ~980 hPa is the right raw reading for this location's real elevation (~260m, consistent with the East Lansing-area GPS coordinates seen in earlier rides; standard sea-level pressure ~1013 hPa drops roughly 1 hPa per 8-10m of elevation). Confirms the barometer is genuinely elevation-sensitive, which is the reason Section 7 of the main plan calls it out as the reliable elevation source.
 
 ## Step 15 — Light
 
