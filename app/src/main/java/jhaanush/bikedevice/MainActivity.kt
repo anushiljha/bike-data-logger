@@ -44,7 +44,10 @@ class MainActivity : AppCompatActivity() {
             if (isRideActive) stopRide()
         }
 
-
+        findViewById<Button>(R.id.btnNavigate).setOnClickListener {
+            val intent = packageManager.getLaunchIntentForPackage("app.organicmaps")
+            if (intent != null) startActivity(intent)
+        }
 
         findViewById<Button>(R.id.btnQuery).setOnClickListener {
             lifecycleScope.launch {
