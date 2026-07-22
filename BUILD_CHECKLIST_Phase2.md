@@ -31,16 +31,33 @@ track, can happen before, after, or interleaved with this one.
   `dumpsys window windows` showed `mCurrentFocus` and `mFocusedApp` both
   switch to `app.organicmaps/.DownloadResourcesActivity`.
 
-## Step 2 — Confirm logging survives Organic Maps taking the screen
+## Step 2 — Confirm logging survives Organic Maps taking the screen — done, verified on the physical S4, 2026-07-21
 
-- [ ] With `Start Ride` active, tap Navigate and use Organic Maps normally
+- [x] With `Start Ride` active, tap Navigate and use Organic Maps normally
   for a minute or two (indoors/short walk is fine for this step).
-- [ ] Return to your app, tap `Stop Ride` + `Export`.
+- [x] Return to your app, tap `Stop Ride` + `Export`.
 - **Verify:** DB pull (or the exported CSV) shows continuous timestamps
   through the period Organic Maps was in the foreground — no gap
   corresponding to that window. This is really just confirming Step 8's
   foreground-service fix still holds now that a second app is the one
   visibly in front, not a new mechanism.
+  - Confirmed via ride 37 (indoor test, 85.2s): sensor CSV had zero gaps
+    over 1 second anywhere in the stream, straight through the window
+    Organic Maps was foregrounded. Ran on a freshly rebuilt install
+    (confirmed via the new `sensorType`/`scalarValue` CSV columns and the
+    absence of any `light` rows) after discovering the prior same-day test
+    attempt had run on a stale APK that predated the CSV-export fix and
+    light-sensor removal — see `CLAUDE.md` for that finding.
+  - **Open item to watch on Step 3, not a blocker:** per-sensor rates were
+    lopsided — accelerometer ~49.7Hz, magnetometer ~46.5Hz, gyroscope
+    ~160.6Hz (over 3x accelerometer), barometer ~5.5Hz. Step 13 saw a
+    similar but smaller "gyro 2x accelerometer" blip chalked up as a
+    one-off fluke; this is more pronounced and accelerometer itself is
+    well under the ~98-100Hz indoor baseline. Possibly Organic Maps'
+    own main-thread load contending for CPU, same class of effect Step 10
+    found with GPS — not investigated further since Step 2's actual verify
+    condition (no gap) was already met, but worth watching during Step 3's
+    real ride.
 
 ## Step 3 — Real combined ride
 
