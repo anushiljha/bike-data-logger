@@ -99,6 +99,31 @@ written at all). Fixed by adding `sensorType,scalarValue` to the CSV
 header/rows. The underlying `bike_data.db` was never affected — only past
 CSV exports are incomplete; a re-export from the DB would recover the full
 data if needed.
+**2026-07-21: device debloated — not a checklist step, done under the
+battery-efficiency priority.** 228 preloaded Samsung/Verizon/Amazon/Google
+packages disabled via `pm disable-user --user 0` (persistent across reboots,
+reversible with `pm enable`), covering widgets (weather/clock/story album),
+sync/backup services (Samsung Cloud, Verizon VMS, visual voicemail — this
+device has no SIM at all), Knox, push services, and unused preloaded apps
+(Amazon store/video/music, NFL, Peel remote, IMDb, etc.). Also disabled
+`com.kingstudio.purify`, the "cleaner" app bundled with the KingRoot
+one-click installer (Step 7) — untrusted third-party software with no
+purpose here. Deliberately left alone anything radio/SIM/USB/GPS/IME-adjacent
+that this project actually depends on: `com.google.android.gms`/`gsf`
+(location), `com.sec.android.inputmethod` (the actual active keyboard —
+confirmed via `ps`, not guessed), `com.sec.usbsettings`/
+`com.samsung.android.MtpApplication` (USB, since the whole verification
+workflow lives on `adb`), anything Ril/modem/phone/telecom/smartcard-named,
+and the ANT+ stack (`com.dsi.ant.*` — potential future bike sensor
+relevance). Motivation is two-sided: direct battery draw from background
+sync/polling, and reduced RAM pressure against the Step 7-confirmed
+low-memory-killer that reaps `LoggingService` under memory pressure (same
+mechanism implicated in the ride-26 battery crash). `pm disable-user`
+required root (`su 0 pm disable-user ...`) — plain `adb shell` alone hit
+`SecurityException: Permission Denial` on this Verizon build, same class of
+stock-firmware restriction Step 7 hit with `run-as`. Not yet re-verified via
+a real ride whether this measurably changes battery drain or LMK behavior —
+that's a natural thing to check during Phase 2 Step 3's real combined ride.
 **Phase 2 (navigation): underway. Steps 1-2 done and verified on the
 physical S4, 2026-07-20/21.** Nav app is **Organic Maps** (`app.organicmaps`), not
 OsmAnd as originally planned — OsmAnd no longer supports this device's
