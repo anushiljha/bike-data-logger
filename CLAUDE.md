@@ -99,8 +99,8 @@ written at all). Fixed by adding `sensorType,scalarValue` to the CSV
 header/rows. The underlying `bike_data.db` was never affected — only past
 CSV exports are incomplete; a re-export from the DB would recover the full
 data if needed.
-**Phase 2 (navigation): underway. Step 1 done and verified on the physical
-S4, 2026-07-20.** Nav app is **Organic Maps** (`app.organicmaps`), not
+**Phase 2 (navigation): underway. Steps 1-2 done and verified on the
+physical S4, 2026-07-20/21.** Nav app is **Organic Maps** (`app.organicmaps`), not
 OsmAnd as originally planned — OsmAnd no longer supports this device's
 Android version at all (dropped Android 5.x support in 2021, current builds
 require Android 7.0+). Confirmed working: installed via Play Store, offline
@@ -118,12 +118,38 @@ real combined ride) is written.
   used since Steps 7/9, then `dumpsys window windows` confirmed
   `mCurrentFocus`/`mFocusedApp` both switched to
   `app.organicmaps/.DownloadResourcesActivity` after the tap.
-- **Steps 2-3 (logging survives Organic Maps foregrounded; real combined
-  ride) — not started.**
+- **Step 2 (logging survives Organic Maps foregrounded) — done, verified
+  2026-07-21.** First attempt that day was accidentally run on a stale
+  install (last updated 13:19, before that morning's CSV-export-fix/
+  light-sensor-removal commit and even the Navigate-button commit) —
+  caught by cross-checking the pulled CSV's column headers against current
+  source, rather than trusting the app's presence on-device alone. Rebuilt
+  from `HEAD` (`gradlew assembleDebug` with `JAVA_HOME` pointed at
+  `Android Studio\inthisnewone\jbr` — the top-level `jbr` folder's
+  `jvm.cfg` is still missing, same finding as Step 10) and reinstalled
+  before repeating the test. Ride 37 (indoor, 85.2s): Start Ride → Navigate
+  → used Organic Maps → Stop Ride → Export produced a sensor CSV with zero
+  gaps over 1 second anywhere in the stream, confirming Step 8's
+  foreground-service fix holds with Organic Maps visibly in front. Also
+  confirmed via this ride that the rebuild genuinely picked up both other
+  same-day fixes: CSV rows carried the new `sensorType`/`scalarValue`
+  columns, and logged types were `accelerometer`/`gyroscope`/
+  `magnetometer`/`barometer` only — no `light` rows, confirming that
+  removal is live on-device, not just in source.
+  - **Open item to watch on Step 3, not a blocker:** per-sensor rates were
+    lopsided on this ride — accelerometer ~49.7Hz, magnetometer ~46.5Hz,
+    gyroscope ~160.6Hz (over 3x accelerometer, more pronounced than Step
+    13's ~2x "fluke"), barometer ~5.5Hz. Accelerometer itself ran well
+    under the ~98-100Hz indoor baseline from Step 16. Possibly Organic
+    Maps' own main-thread load contending for CPU, same class of effect
+    Step 10 found with GPS polling — not dug into further since Step 2's
+    actual verify condition (no gap) was already met, but worth watching
+    during Step 3's real ride.
+- **Step 3 (real combined ride) — not started.**
 
 Full plan: `Bike_Data_Logger_Project_Plan.md`. Step-by-step build order:
 `BUILD_CHECKLIST_Phase1.md` (Steps 0-16 all complete) and
-`BUILD_CHECKLIST_Phase2.md` (Step 1 done, Steps 2-3 next).
+`BUILD_CHECKLIST_Phase2.md` (Steps 1-2 done, Step 3 next).
 
 ### Phase 0 — resolved decisions
 
