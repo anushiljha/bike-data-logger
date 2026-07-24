@@ -1,10 +1,11 @@
 # Bike Data Logger — Project Memory
 
 Android app (Kotlin) turning a wiped Samsung Galaxy S4 (Verizon SCH-I545, build
-`LRX22C.I545VRUGOF1`, Android 5.0.1) into a bike-mounted telemetry device:
-turn-by-turn navigation + simultaneous sensor/GPS logging, analyzed afterward in
-Python/pandas. Built by a data science student (CSE background) using Android
-Studio on Windows.
+`LRX22C.I545VRUGOF1`, Android 5.0.1) into a bike-mounted telemetry device: a
+live ride dashboard + simultaneous sensor/GPS logging, analyzed afterward in
+Python/pandas. (Turn-by-turn navigation was in scope through Phase 2 Step 3,
+then dropped 2026-07-23 — see below.) Built by a data science student (CSE
+background) using Android Studio on Windows.
 
 Read this file before making any code suggestions or edits.
 
@@ -124,15 +125,29 @@ required root (`su 0 pm disable-user ...`) — plain `adb shell` alone hit
 stock-firmware restriction Step 7 hit with `run-as`. Not yet re-verified via
 a real ride whether this measurably changes battery drain or LMK behavior —
 that's a natural thing to check during Phase 2 Step 3's real combined ride.
-**Phase 2 (navigation): underway. Steps 1-2 done and verified on the
-physical S4, 2026-07-20/21.** Nav app is **Organic Maps** (`app.organicmaps`), not
-OsmAnd as originally planned — OsmAnd no longer supports this device's
-Android version at all (dropped Android 5.x support in 2021, current builds
-require Android 7.0+). Confirmed working: installed via Play Store, offline
-maps downloaded, and an offline cycling-mode route to a real destination
-confirmed with WiFi disconnected. `BUILD_CHECKLIST_Phase2.md` (3 steps:
-Navigate button, confirm logging survives Organic Maps in the foreground,
-real combined ride) is written.
+**Phase 2 (navigation): navigation dropped 2026-07-23, rescoped to a ride
+dashboard.** Steps 1-2 (Navigate button; logging survives Organic Maps
+foregrounded) were done and verified on the physical S4, 2026-07-20/21, and
+Organic Maps (`app.organicmaps`, not OsmAnd — OsmAnd dropped Android 5.x
+support in 2021) worked fine as a standalone nav app, offline maps
+downloaded and offline cycling routing confirmed. But Step 3's real combined
+rides (38/39, 2026-07-22) found that running Organic Maps continuously
+alongside the logger exhausts this device's RAM: Organic Maps itself
+native-crashed on both rides, and — far more seriously —
+`LoggingService` silently died mid-ride on both rides too, well before Stop
+Ride was tapped (190s early on ride 38; **947s/55% of ride 39 lost**),
+masked by the Step 10 `getActiveRide()` fallback still producing a
+plausible-looking `endTime`. No viable mitigation survived scrutiny
+(app-switching needs free hands not available on a bike; voice guidance is
+unreliable in traffic noise; exporting a calculated route from Organic Maps
+to drive a lighter display doesn't work — verified hands-on, no such export
+path exists). Full forensics and the decision writeup are below, under
+"Phase 2 Step 3 findings and navigation drop, 2026-07-22/23." Phase 2 is now
+rescoped to a live dashboard (speed/odometer/elevation from data already
+logged, plus a local street view rendered from a bundled offline OSM
+extract — no third-party map app). `BUILD_CHECKLIST_Phase2.md` rewritten
+accordingly: Steps 1-3 kept as history (Step 3 marked abandoned with full
+reasoning), Steps 4-10 are the new dashboard work, none started yet.
 - **Step 1 (Navigate button) — done, verified 2026-07-20.** New
   `btnNavigate` in `activity_main.xml`, wired in `MainActivity.onCreate()`
   to `packageManager.getLaunchIntentForPackage("app.organicmaps")` →
@@ -170,11 +185,172 @@ real combined ride) is written.
     Step 10 found with GPS polling — not dug into further since Step 2's
     actual verify condition (no gap) was already met, but worth watching
     during Step 3's real ride.
-- **Step 3 (real combined ride) — not started.**
+- **Step 3 (real combined ride) — attempted 2026-07-22, abandoned
+  2026-07-23. Navigation dropped; see below and Step 4 onward in
+  `BUILD_CHECKLIST_Phase2.md`.**
+
+#### Phase 2 Step 3 findings and navigation drop, 2026-07-22/23
+
+Two real rides (38: 16.2 min, 09:50-10:07 EDT; 39: 28.6 min, 17:03-17:31
+EDT) were logged 2026-07-22 with Organic Maps navigating alongside the
+logger, per Step 3. User-reported symptoms: GPS took ~1-3.5 min to get a
+fix (expected, same no-SIM/no-A-GPS limitation as always), Organic Maps
+crashed partway through both rides, and Export took an "insanely long"
+time afterward. Investigated by pulling `bike_data.db`, `dumpsys dropbox`
+crash logs, and `dumpsys batterystats --history` off the phone (still
+connected via USB) rather than guessing from the symptom report alone.
+
+**Export slowness — root cause found: a real `OutOfMemoryError`, not just
+slowness.** `MainActivity.exportMostRecentRide()` (`MainActivity.kt:129`)
+calls `sensorReadingDao.getForRide()`, which loads the *entire* ride's
+`sensor_readings` into memory as one `List` before writing anything to
+disk. Ride 39 had ~199,000 sensor rows; building that full list in memory
+exhausted the app's heap and threw a real `OutOfMemoryError`, confirmed via
+the dropbox crash log at `MainActivity.kt:148`
+(`StringBuilder.append` inside the CSV-writing `forEach`, "0 free bytes and
+0B until OOM"). That crash isn't caught by the existing
+`catch (e: Exception)` around the export call — `OutOfMemoryError` is an
+`Error`, not an `Exception` — so the app crashed outright instead of
+showing "Export failed." Ride 38's export hit a related but different
+crash a few minutes after ride end (a GC finalizer-timeout watchdog crash,
+`data_app_crash` at 10:14:09, `java.util.concurrent.TimeoutException:
+... BinderInternal$GcWatcher.finalize()`). **Not yet fixed** — the export
+path still needs to stream rows to disk instead of materializing the whole
+list, but this was deprioritized once the deeper finding below took over
+the session; picking this up is still open.
+
+**The real finding: `LoggingService` silently died mid-ride on both rides,
+well before Stop Ride was tapped, and the app's own bookkeeping hid it.**
+Found by comparing each ride's `endTime` against its last actual
+`sensor_readings`/`gps_points` timestamp (not something the app surfaces
+anywhere):
+- Ride 38: last real sensor/GPS row at 10:03:52-56, but `endTime` wasn't
+  set until 10:07:03 — **190s (3.2 min) of the ride's tail has zero data**,
+  even though the ride "looks" complete (clean start/end, matches a normal
+  Stop Ride tap).
+- Ride 39: last real sensor/GPS row at 17:15:52-56, `endTime` not set until
+  17:31:39 — **947s (15.8 min) missing, 55% of the ride's total duration.**
+- Both rides' data up to the death point had no internal gaps (max
+  consecutive-row gap 90ms and 1131ms respectively) — this isn't sensor
+  flakiness, logging just stopped cold and never resumed.
+- `dumpsys batterystats --history` confirmed the app's own foreground/GPS
+  flag (`+fg=...bikedevice`, tied to the `requestLocationUpdates`
+  subscription from the Step 10 fix) dropped at essentially the same
+  moment logging stopped (within ~4s both times) — **not** at the real
+  Stop Ride time. That means the underlying service (or at least its
+  location subscription) genuinely died at that point, not just stopped
+  writing — consistent with Step 7's already-confirmed low-memory-killer
+  behavior on this device, now triggered by nav+logging RAM pressure
+  specifically rather than plain backgrounding.
+- The ride still closed with a sane-looking `endTime` because Step 10's
+  `getActiveRide()`/`rideId=-1` fallback did exactly what it was built to
+  do — find the real open ride and close it — when Stop Ride was eventually
+  tapped against a since-relaunched service. That fallback was designed to
+  prevent an *orphaned* ride (Step 10's original problem); it was never
+  designed to signal *how much of the ride actually got logged*, and
+  nothing else in the app does either. This is a real gap worth remembering
+  even outside the navigation question: a clean-looking `endTime` is not
+  proof of complete data.
+
+**Organic Maps crashed shortly *after* the logging service, both times —
+same root cause, not coincidence.** Pulled via `dumpsys dropbox --print`:
+ride 38's crash (10:04:28, 32s after logging died) was a SIGSEGV null-
+pointer-style crash (`fault addr 0x54`); ride 39's crash (17:16:50, 54s
+after logging died) was a SIGABRT with `Abort message: 'terminating due to
+uncaught exception of type std::bad_alloc: std::bad_alloc'` — a genuine
+native out-of-memory crash. Two different crash types inside Organic Maps'
+own code (not something fixable from this codebase), but both landing
+shortly after the same memory-pressure window that killed `LoggingService`
+reads as one shared cause (the S4's 2GB RAM exhausted by native map
+rendering + routing + continuous GPS/sensor logging + screen-on, all at
+once), not two unrelated bugs.
+
+**Confirmed this is a RAM problem, not a low-battery problem: ride 38
+crashed at 76-77% battery.** `batterystats` history showed ride 38 starting
+at 87% and still at 76-77% when logging died and Organic Maps crashed —
+nowhere near a low-power state. This matters for a real question that came
+up afterward: a new battery (the original is original-to-2013 and visibly
+degraded) was floated as a possible fix, but a healthy battery already
+crashed things, so a bigger/fresher one wouldn't have prevented this
+specific failure — it's still worth doing for its own sake (ride duration,
+and it may reduce late-ride throttling like ride 26's original battery-
+crash finding), just not a substitute for dropping navigation. (Checked one
+specific aftermarket "4800mAh" listing under consideration — stock is
+2600mAh, and the same seller inconsistently lists 4200mAh for what's
+supposedly the same battery, so treat printed aftermarket capacity claims
+for this device with real skepticism regardless of which one gets bought.)
+
+**Mitigations discussed and ruled out, in order:**
+1. *Switch between Organic Maps and the app mid-ride* (reduce Organic
+   Maps' foreground time) — rejected immediately: no free hands on a bike
+   to operate a touchscreen mid-ride.
+2. *Voice-guided navigation with the screen off/backgrounded* — the
+   rendering (not the routing/voice logic) was the working theory for what
+   actually costs memory, so backgrounding while voice guidance continues
+   seemed promising. Rejected: unreliable in real traffic noise, and there
+   was no verified basis for claiming Organic Maps' voice guidance is as
+   good as e.g. Apple Maps' — an assumption correctly challenged rather
+   than accepted.
+3. *Extract a calculated route from Organic Maps (GPX/track export) to
+   drive a much lighter custom display instead of its full rendering UI* —
+   this became the real design direction (see below), but the "use Organic
+   Maps' own routing, just don't leave it open" version of the idea was
+   tested and found not to work: web research found Organic Maps added
+   "save planned routes as tracks" per a June 2025 changelog blurb, and
+   tracks are exportable (GPX/KML/GeoJSON) via its standard Bookmarks and
+   Tracks screen — but **hands-on testing on the actual device (build
+   2026.07.15-11-Google, current) found no such export path exists**:
+   calculated a real 1.9mi cycling route, then checked every plausible UI
+   location (the routing panel's own buttons, its gear/elevation-toggle
+   icon, long-pressing the route line itself, the global Bookmarks and
+   Tracks screen — which still showed "0 bookmarks, 0 tracks" after
+   calculating the route — and the main hamburger menu, whose only
+   track-related feature is "Record Track," which records your actual GPS
+   breadcrumbs as you move, not a way to save a route before riding it).
+   Also checked Organic Maps' `api-android` GitHub library on the theory
+   it might allow embedding a lighter view or fetching route data
+   programmatically — confirmed via its docs that it's intent-only
+   (`showPointOnMap`, pick-a-coordinate), no embeddable renderer, no route
+   data access at all. This closes off relying on Organic Maps in any form.
+   - **New testing method discovered during this investigation, worth
+     reusing:** this device has no screen mirroring (established since
+     Step 7/9), so past verification relied on `uiautomator dump` +
+     blind `input tap`. That doesn't work for Organic Maps' UI at all,
+     since its map/place-page content is natively rendered (OpenGL/custom
+     canvas), invisible to the accessibility tree. **`adb shell screencap
+     -p` works fine regardless** — it reads the framebuffer directly, no
+     mirroring session needed — and produces a real PNG that can be pulled
+     and viewed. This is a strictly better method than blind `uiautomator`
+     automation for anything involving non-standard-widget UI (which
+     includes any third-party map app, and possibly parts of this app's
+     own future custom `Canvas` dashboard/street view) and should be the
+     default for on-device UI verification going forward, not just a
+     fallback.
+
+**Decision: drop navigation entirely, 2026-07-23.** Not a partial
+retreat — no fallback nav mode, no "nav for new places only" carve-out
+using Organic Maps. Phase 2 is rescoped to a live ride dashboard (speed,
+odometer, elevation — all computable from GPS/barometer data already being
+logged, no new sensors needed) plus a small local street view (~75m radius
+around current position) rendered with a plain `Canvas` from a bundled
+offline OSM extract fetched once over WiFi — deliberately avoiding the
+failure mode above by never running a third-party native map renderer
+continuously. The "navigate somewhere brand-new" case (the original reason
+navigation was wanted) stays unsolved and out of scope for now — no offline
+routing engine is available to this app without either Organic Maps
+(closed off above) or live network access (not available away from home,
+per the WiFi-only design and no-SIM decision from Phase 0) — accepted as a
+manual "glance at Organic Maps once while stopped" fallback for the rare
+case, not blocking the dashboard work. Full decision record in
+`Bike_Data_Logger_Project_Plan.md` Section 5 and Section 13 #2.
+`BUILD_CHECKLIST_Phase2.md` rewritten: Steps 1-3 kept as history (Step 3
+marked abandoned with this reasoning), Steps 4-10 are the new dashboard
+work.
 
 Full plan: `Bike_Data_Logger_Project_Plan.md`. Step-by-step build order:
 `BUILD_CHECKLIST_Phase1.md` (Steps 0-16 all complete) and
-`BUILD_CHECKLIST_Phase2.md` (Steps 1-2 done, Step 3 next).
+`BUILD_CHECKLIST_Phase2.md` (Steps 1-3 done/abandoned as above, Step 4
+next).
 
 ### Phase 0 — resolved decisions
 
