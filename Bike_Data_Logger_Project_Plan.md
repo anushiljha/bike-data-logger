@@ -1,25 +1,27 @@
-# Bike Data Logger & Navigator — Project Plan
+# Bike Data Logger — Project Plan
 
-A repurposed Samsung Galaxy S4 as a bike-mounted telemetry device: navigate, log ride sensor data, and mine it for route comparison, speed-decay modeling, and predictive ETA.
+A repurposed Samsung Galaxy S4 as a bike-mounted telemetry device: log ride sensor data, show a live ride dashboard, and mine the data for route comparison, speed-decay modeling, and predictive ETA.
 
 ## Document Control
 
 | Field | Value |
 |---|---|
-| Version | 0.5 |
+| Version | 0.6 |
 | Owner | Anushil |
-| Status | Phase 1 (Steps 1-10) complete, Steps 11-16 (multi-sensor) in progress, Phase 2 (navigation) decision resolved, code not yet implemented |
-| Last updated | 2026-07-20 |
+| Status | Phase 1 complete (Steps 0-16). Phase 2 navigation dropped 2026-07-23 after real-ride testing; rescoped to a ride dashboard (live speed/odometer/elevation + local street view) — checklist written (`BUILD_CHECKLIST_Phase2.md` Steps 4-10), none started yet. |
+| Last updated | 2026-07-24 |
 
 **Change log**
 
 | Date | Version | Change | Author |
 |---|---|---|---|
+| 2026-07-24 | 0.7 | Documentation coherence pass: removed leftover "navigation" framing from the title/opening line/Objective #2/permissions table (nav was dropped 2026-07-23, this doc's own Section 5 already said so but other sections hadn't caught up); fixed Section 8's transfer-method wording to match Section 13 #3 (USB primary, WiFi fallback — it had drifted to say the reverse); filled in Section 3.1's device-ID blanks with values already settled elsewhere in this doc and `CLAUDE.md`; added the confirmed-but-untracked export `OutOfMemoryError` (found 2026-07-22, ride 39) to Sections 11 and 13; clarified `ACCESS_BACKGROUND_LOCATION`'s stated purpose now that there's no separate nav app to reference. | Claude |
 | 2026-07-09 | 0.1 | Initial draft plan created | Claude |
 | 2026-07-17 | 0.2 | Section 13 backfilled: decisions #1 (OS path), #2 (nav app), #6 (rooting method) marked Resolved with actual reasoning from Phase 0/1 build notes (see `CLAUDE.md`). Decision #3 (data transfer) left OPEN — USB has been used for every data pull so far, but that reflected dev/debugging convenience, not a considered choice. | Claude |
 | 2026-07-17 | 0.3 | Decision #3 (data transfer) resolved to USB — confirmed reliable across Phase 1, WiFi ADB retained as an existing fallback rather than the primary path. | Claude |
 | 2026-07-17 | 0.4 | Decision #2 (nav app) reopened from Resolved:OsmAnd to Testing:Google Maps — on-device evidence (Maps already installed, functional, offline maps downloaded) outweighs the earlier theoretical Play-Services-cutoff concern. Gray-dot GPS symptom identified as the same known no-SIM/no-A-GPS limitation from Phase 1, not a Maps-specific issue. | Claude |
 | 2026-07-20 | 0.5 | Decision #2 (nav app) re-resolved from Testing:Google Maps to Resolved:Organic Maps — Google Maps directly tested and ruled out (no offline bicycling directions, confirmed via Google's docs and an on-site WiFi-off test); OsmAnd found to no longer support this device's Android 5.x at all (dropped in 2021). Organic Maps confirmed compatible and working (offline cycling route to a real destination, WiFi disconnected). | Claude |
+| 2026-07-23 | 0.6 | Decision #2 (nav app) reopened and reversed to **no navigation**, dropping Organic Maps entirely — real Step 3 combined-ride testing (rides 38/39, 2026-07-22) found it exhausts this device's RAM alongside the logger, causing both its own native crashes and silent mid-ride death of `LoggingService` (up to 55% of a ride lost, masked by the Step 10 fallback). Investigated exporting a calculated route from Organic Maps to drive a lighter display instead — confirmed hands-on, no such path exists in the installed build. Phase 2 rescoped from "navigation integration" to "ride dashboard": live speed/odometer/elevation (from data already logged) plus a local street view (~75m radius) from a bundled offline OSM extract, no third-party nav app. | Claude |
 
 > This document is meant to be edited directly as decisions change. Anything marked **[OPEN]** in Section 13 is an unresolved decision — update the log entry when you resolve it instead of just changing the text elsewhere, so there's a record of *why* it changed.
 
@@ -27,12 +29,14 @@ A repurposed Samsung Galaxy S4 as a bike-mounted telemetry device: navigate, log
 
 ## 1. Project Overview
 
-**Vision:** Turn a spare Galaxy S4 into a dedicated bike computer that (a) provides turn-by-turn navigation, and (b) silently logs GPS + motion + environmental sensor data for every ride, producing a personal dataset you own and can analyze.
+**Vision:** Turn a spare Galaxy S4 into a dedicated bike computer that (a) shows a live ride dashboard — speed, odometer, elevation, and a small local street view of your immediate surroundings — and (b) silently logs GPS + motion + environmental sensor data for every ride, producing a personal dataset you own and can analyze.
+
+**Revised 2026-07-23 — turn-by-turn navigation dropped.** The original vision paired the logger with a full navigation app (Organic Maps). Real Step 3 testing (`BUILD_CHECKLIST_Phase2.md`, rides 38/39 on 2026-07-22) found that running Organic Maps' live map rendering continuously alongside the logger exhausts this device's 2GB RAM: Organic Maps itself native-crashed on both rides, and — more seriously — `LoggingService` silently died mid-ride on both rides too (190s early on ride 38, 947s/55% of ride 39), masked by the Step 10 ride-bookkeeping fallback still producing a plausible-looking `endTime`. No hands-free mitigation survived scrutiny (switching apps mid-ride isn't possible with no free hands on a bike; voice guidance is unreliable in traffic noise). Full forensics in `CLAUDE.md`. Navigation is out of scope going forward — see Section 5.
 
 **Objectives**
 
-1. Build a custom Android app (the "CSE-flex path") that logs sensor + GPS data during a ride, independent of whatever navigation app is running on screen.
-2. Use the same device for turn-by-turn navigation while it logs in the background.
+1. Build a custom Android app (the "CSE-flex path") that logs sensor + GPS data during a ride, independent of whatever else is on screen.
+2. Show a live ride dashboard (speed, odometer, elevation, local street view) on the same device while it logs in the background — no separate navigation app (dropped 2026-07-23, see Section 5).
 3. Build a repeatable data pipeline that pulls ride data off the phone and into a Python analysis environment.
 4. Answer three concrete questions with the collected data:
    - Which of my regular routes is actually best (time / smoothness / effort), not just which one feels best?
@@ -52,21 +56,22 @@ A repurposed Samsung Galaxy S4 as a bike-mounted telemetry device: navigate, log
 **In scope**
 
 - Custom Android logging app (Kotlin), GPS + IMU + barometer capture.
-- Navigation via an on-device maps/nav app (exact app TBD — see Section 5).
+- Live on-device ride dashboard: speed, odometer, elevation (from already-logged GPS/barometer data), and a small local street view (~75m radius) rendered from a bundled offline OSM extract, bounded to the bike's actual operating range (Lansing + East Lansing + Haslett + Okemos, MI — confirmed the bike doesn't leave this region; genuinely new areas outside it are out of scope by design, an iPhone is the accepted fallback there) — see Section 5.
 - Local storage on-device (SQLite/Room), manual or WiFi export to a laptop.
 - Python-based analysis: route comparison, speed decay, predictive ETA.
 - Documentation of the build so it's reproducible and correctable later.
 
 **Out of scope (for now — candidates for future phases)**
 
+- Turn-by-turn navigation — dropped 2026-07-23; see Section 5 for why. Not ruled out forever, just not something this device can do reliably alongside logging.
 - Cloud sync / remote dashboard accessible from anywhere.
-- Real-time analytics *during* a ride (this is post-ride analysis only, at least initially).
+- Real-time analytics *during* a ride beyond the dashboard itself (deeper analysis is post-ride only).
 - Pairing with external sensors (heart rate strap, cadence sensor) — noted as a future extension in Section 9.
 - Machine-learning models beyond simple regression/tree-based methods for the first pass.
 
 **Assumptions**
 
-- The S4 (Verizon SCH-I545 variant, pending confirmation) will be used WiFi-only; no active cellular plan assumed. All design choices below default to "must work over WiFi only," so the Verizon SIM-lock question becomes irrelevant to this project.
+- The S4 (Verizon SCH-I545, confirmed) will be used WiFi-only; no active cellular plan/SIM. All design choices below default to "must work over WiFi only," so the Verizon SIM-lock question is irrelevant to this project.
 - You have a personal computer to run the Python analysis side; the phone itself is not doing the data science.
 - Riding is outdoors with generally clear sky view (GPS accuracy assumption).
 
@@ -80,13 +85,13 @@ Fill this in before doing anything else — it determines several downstream dec
 
 | Item | How to find it | Your value |
 |---|---|---|
-| Exact model number | Settings → About phone → Model number (or under the battery on older units) | _________ (expect `SCH-I545` if Verizon) |
+| Exact model number | Settings → About phone → Model number (or under the battery on older units) | `SCH-I545` (Verizon) |
 | IMEI | Dial `*#06#` or Settings → About phone → Status | `990003378910794` |
-| Current Android version | Settings → About phone → Android version | _________ (stock ceiling is Android 5.0.1 for this model) |
-| Build number | Settings → About phone → Build number | _________ |
-| Battery health / swelling check | Visual inspection — do this before mounting anything on a moving bike | Pass / Fail |
-| Carrier lock status | Insert a non-Verizon SIM and see if it registers, or check via IMEI lookup on Verizon's device unlock page | _________ |
-| Storage available | Settings → Storage | _________ |
+| Current Android version | Settings → About phone → Android version | `5.0.1` (stock ceiling for this model) |
+| Build number | Settings → About phone → Build number | `LRX22C.I545VRUGOF1` |
+| Battery health / swelling check | Visual inspection — do this before mounting anything on a moving bike | Pass — visually inspected, no swelling |
+| Carrier lock status | Insert a non-Verizon SIM and see if it registers, or check via IMEI lookup on Verizon's device unlock page | N/A — WiFi-only design, no SIM used |
+| Storage available | Settings → Storage | 16GB — confirmed sufficient |
 
 ### 3.2 Confirmed hardware specs (SCH-I545)
 
@@ -134,7 +139,8 @@ Recommended prep sequence:
 - **Location Service** — GPS position/speed/bearing capture.
 - **Ride Session Manager** — state machine controlling start/pause/stop of a logging session, ties sensor + location streams to a single `ride_id`.
 - **Local Storage** — Room/SQLite database on-device.
-- **Navigation Launcher** — triggers the chosen navigation app via Android Intent, independent of the logger (they run side by side, not integrated).
+- **Live Dashboard** — speed/odometer/elevation computed from the same GPS+barometer stream already being logged, surfaced to the UI in real time while a ride is active.
+- **Local Street Renderer** — draws nearby street geometry (~75m radius) around the current GPS position on a plain Canvas, from a locally-stored OSM extract fetched once over WiFi. Replaces the originally-planned Navigation Launcher/third-party nav app (dropped — see Section 5).
 - **Export Module** — dumps a ride (or all rides) to CSV/SQLite file for transfer to a laptop.
 - **Analysis Pipeline** (off-device) — Python scripts/notebooks that ingest exported data and run the three analysis modules.
 
@@ -157,7 +163,7 @@ Data flow: `Sensors + GPS → Ride Session Manager → Room DB → Export (CSV) 
 | Permission | Purpose |
 |---|---|
 | `ACCESS_FINE_LOCATION` | GPS logging |
-| `ACCESS_BACKGROUND_LOCATION` | Keep logging while navigation app is in foreground |
+| `ACCESS_BACKGROUND_LOCATION` | Keep GPS logging active if the app itself gets backgrounded (e.g. screen locks) during an active ride — not needed when no ride is active |
 | `FOREGROUND_SERVICE` (+ `FOREGROUND_SERVICE_LOCATION` on newer Android) | Keep the logging service alive during a ride |
 | `WRITE_EXTERNAL_STORAGE` / scoped storage APIs | Export CSV files |
 | `INTERNET`, `ACCESS_NETWORK_STATE` | Optional: pulling weather data by timestamp/location for later analysis |
@@ -165,9 +171,15 @@ Data flow: `Sensors + GPS → Ride Session Manager → Room DB → Export (CSV) 
 
 ---
 
-## 5. Navigation Integration — Decision Required
+## 5. Navigation Integration — Dropped 2026-07-23
 
-This is the piece most affected by the phone's age, so it's broken out on its own.
+**This section is now historical.** It documents how a nav-app decision was reached and then reversed — kept in full rather than deleted, per this doc's own rule of recording *why* things changed, not just the current state.
+
+**Why navigation was dropped:** Organic Maps (the app this section resolved to) was integrated per `BUILD_CHECKLIST_Phase2.md` Steps 1-2, then tested on two real combined rides for Step 3 (rides 38/39, 2026-07-22). Both rides showed Organic Maps native-crashing (`std::bad_alloc`/SIGABRT on one, SIGSEGV on the other) and — the more serious finding — `LoggingService` itself silently dying mid-ride under the same memory pressure, well before the rider tapped Stop Ride (190s early on ride 38; 947s/55% of ride 39 lost). The existing Step 10 fallback (`getActiveRide()`) still closed each ride with a plausible `endTime`, so nothing in the app's own UI or a casual DB check flagged the data loss — it only surfaced via cross-referencing last-logged-timestamp against `endTime`. Mitigations considered and ruled out: backgrounding Organic Maps between glances (not viable — no free hands on a bike to switch apps); voice-guided navigation with the screen off (not viable — unreliable in traffic noise, and no verified basis for Organic Maps' voice guidance quality); exporting a calculated route from Organic Maps to drive a lighter custom display instead of its full rendering UI (investigated hands-on on the physical device — no such export path exists in the installed build, despite an unrelated "save planned routes" changelog entry suggesting otherwise). Full forensics (DB pull, dropbox crash logs, `batterystats` history correlation) in `CLAUDE.md`.
+
+**What replaces it:** a live on-device dashboard (speed/odometer/elevation, computed from data already being logged) plus a small local street view (~75m radius) rendered from a bundled offline OSM extract — see the new Component list in Section 4.1 and the rescoped `BUILD_CHECKLIST_Phase2.md`. This deliberately avoids the failure mode above: no third-party native map renderer running continuously, no large-area live rendering, no dependency Organic Maps' own crash risk.
+
+The original decision narrative (kept for context) follows.
 
 **The problem:** the newest Google Maps app effectively requires Android 9+. The S4 cannot reach Android 9 through any known ROM path for this hardware. That doesn't mean Google Maps is impossible — older, archived versions of the app (from APK archive sites) may still install and function on Android 5–7, since the app itself doesn't stop working, it just stops receiving *updates*. Map data and traffic info in an old app version will eventually go stale, though, since it depends on backend API compatibility that Google doesn't guarantee to maintain forever for old clients.
 
@@ -182,7 +194,7 @@ This is the piece most affected by the phone's age, so it's broken out on its ow
 
 **Resolved (2026-07-17 — see Section 13 #2):** Nav app is **Organic Maps** (`app.organicmaps`). Path to that answer: Google Maps (already installed, v10.63.6) was directly tested and ruled out — confirmed via Google's own documentation and an on-site offline test (WiFi disconnected) that it cannot compute bicycling directions without a live connection, disqualifying given this project's WiFi-only design. OsmAnd, the original default in the fallback matrix above, turned out to no longer support this device's Android version at all — it dropped Android 5.x support in 2021, and current builds require Android 7.0+. Organic Maps was then tried and confirmed compatible (Android 5.0 minimum, matches this device exactly, no legacy-APK workaround needed) and confirmed working: installed via Play Store, offline maps downloaded, and an offline cycling-mode route to a real destination confirmed with WiFi disconnected.
 
-This was logged as **Open Decision #2** in Section 13, now Resolved.
+This was logged as **Open Decision #2** in Section 13 — reopened and re-resolved 2026-07-23 to **no navigation** (see the top of this section and Section 13 for the current status).
 
 ---
 
@@ -266,7 +278,7 @@ This was logged as **Open Decision #2** in Section 13, now Resolved.
 ## 8. Data Pipeline (Phone → Analysis)
 
 1. **Export** — app writes CSV (or exposes the raw SQLite `.db` file) to a designated folder.
-2. **Transfer** — WiFi file transfer (e.g., a simple local HTTP server on the phone, or syncing to a laptop-visible folder) to avoid depending on cellular/cloud. USB is the reliable fallback.
+2. **Transfer** — USB (`adb pull`, or `su -c cp` to `/sdcard` + `adb pull` for root-owned files) — confirmed reliable across every Phase 1 data pull (Steps 7-10). WiFi ADB (`adb tcpip`/`adb connect`) is an available fallback if USB ever degrades, per Section 13 #3.
 3. **Ingest** — Python script loads CSV/SQLite into pandas DataFrames.
 4. **Clean** — drop GPS points with poor accuracy (`accuracy_m` above a threshold), interpolate small gaps, flag but don't silently drop sensor dropouts.
 5. **Store** — append into a master local dataset (SQLite or Parquet) so every ride accumulates into one queryable history rather than living as scattered CSVs.
@@ -314,7 +326,7 @@ This was logged as **Open Decision #2** in Section 13, now Resolved.
 |---|---|---|---|
 | 0 | Device prep & verification | ~1 week | Completed checklist (3.1), OS/nav decisions resolved |
 | 1 | MVP sensor logger app | 2–3 weeks | App that logs a ride to local DB, start/stop UI, CSV export |
-| 2 | Navigation integration | ~1 week | Nav app launches and works alongside logger during a real ride |
+| 2 | Ride dashboard (navigation dropped 2026-07-23) | ~1-2 weeks | Live speed/odometer/elevation + local street view (~75m) working alongside logger during a real ride |
 | 3 | Field data collection | 2–4 weeks, ongoing | 10+ logged rides across 3+ routes |
 | 4 | Data pipeline & cleaning | 1–2 weeks | Reproducible ingest/clean script, master dataset |
 | 5 | Analysis modules | 3–4 weeks | Route comparison report, speed decay model, ETA model with validation numbers |
@@ -329,7 +341,7 @@ Phases 3–5 can overlap — you don't need to stop collecting data before start
 
 | Risk | Impact | Likelihood | Mitigation |
 |---|---|---|---|
-| Google Maps incompatible/degrades on old Android | Navigation feature unreliable | Resolved | Ruled out (no offline bicycling directions); using Organic Maps instead (Section 5) — logger is independent of nav app either way |
+| Combined nav app + logger exhausts device RAM | Silent mid-ride data loss, third-party app crashes | **Materialized, resolved by dropping nav** | Confirmed on real rides 38/39 (2026-07-22): Organic Maps native-crashed and `LoggingService` silently died mid-ride under combined memory pressure. Navigation dropped entirely 2026-07-23; replaced with a lightweight in-app dashboard + local street view that doesn't run a third-party native map renderer (Section 5) |
 | Bootloader unlock/root bricks the device | Total device loss | Low–Medium | Full backup first; verify method against exact model/build number before flashing anything |
 | GPS drift in urban areas/under tree cover | Noisy location/speed data | Medium | Filter by `accuracy_m`; smooth with a moving average or Kalman filter in the pipeline |
 | Battery drain mid-ride | Incomplete ride data | Medium | Power bank; log battery %; tune sampling rates if drain is excessive |
@@ -337,6 +349,7 @@ Phases 3–5 can overlap — you don't need to stop collecting data before start
 | Not enough rides for meaningful ML | Weak/overfit ETA model | Medium | Set a minimum-N threshold before trusting model output; treat early results as exploratory |
 | Weatherproofing failure | Water/dust damage to phone | Low | Test the case/pouch before committing to real rides |
 | Scope creep (adding features before MVP works) | Delayed working prototype | Medium | Follow the phase order in Section 10; resist adding analysis modules before Phase 1–2 are solid |
+| Export of long rides can OOM-crash the app | Export silently fails / app crashes instead of showing "Export failed" | **Materialized** — confirmed 2026-07-22, ride 39 (~199k sensor rows) | `MainActivity.exportMostRecentRide()` loads a ride's entire `sensor_readings` into memory as one `List` before writing; needs to stream rows to disk instead. Not caught by the existing `catch (Exception)` since `OutOfMemoryError` is an `Error`. Not yet fixed — see Section 13 #7 |
 
 ---
 
@@ -356,11 +369,12 @@ Update this table as decisions get made — don't just silently edit earlier sec
 | # | Decision | Status | Options | Current recommendation |
 |---|---|---|---|---|
 | 1 | OS path: stay stock/rooted vs. custom ROM | **RESOLVED** | (a) Stay on stock/rooted Android 5.0.1 (b) Flash LineageOS 14.1 (Android 7.1, unofficial build) | (a), but forced rather than chosen — build `LRX22C.I545VRUGOF1` has a permanently eFuse-locked bootloader, so no custom ROM (LineageOS/TWRP/CWM) is possible on this exact firmware at all. A 2023 community chainload exploit exists as a theoretical advanced option but is out of scope. |
-| 2 | Navigation app | **RESOLVED** | Google Maps (already installed) / OsmAnd / Organic Maps / Waze | **Organic Maps** (`app.organicmaps`) — Google Maps was tested and ruled out (no offline bicycling directions, confirmed via Google's docs and an on-site WiFi-off test); OsmAnd turned out to no longer support this device's Android 5.x at all (dropped in 2021). Organic Maps confirmed compatible (Android 5.0 minimum) and confirmed working: offline maps downloaded, offline cycling-mode route to a real destination with WiFi disconnected. |
+| 2 | Navigation app | **RESOLVED → DROPPED (2026-07-23)** | Google Maps (already installed) / OsmAnd / Organic Maps / Waze / no navigation | **No navigation.** Organic Maps was resolved, integrated (Phase 2 Steps 1-2), and confirmed working offline — but real Step 3 rides (38/39, 2026-07-22) found it exhausts this device's RAM alongside the logger, native-crashing itself and silently killing `LoggingService` mid-ride (up to 55% of a ride lost, masked by the Step 10 fallback). No viable mitigation found (app-switching needs free hands; voice guidance is unreliable in traffic; Organic Maps has no route-export path to drive a lighter custom display — verified hands-on). Replaced with an in-app dashboard + local street view (Section 5). |
 | 3 | Data transfer method | **RESOLVED** | USB / local WiFi transfer / cloud sync | USB (`adb pull` / `su -c cp` + `adb pull`) — confirmed reliable across every Phase 1 data pull (Steps 7–10). `adb tcpip`/WiFi ADB already exists as a proven fallback (used to work around a separate USB install-specific flakiness in Step 10), so it's available without new setup if the USB path ever degrades again. |
 | 4 | App language | Resolved | Kotlin vs. Java | Kotlin |
 | 5 | ETA modeling approach | **OPEN** (revisit in Phase 5) | scikit-learn regression vs. more complex ML | Start simple (linear/tree regression); escalate only if underfitting |
 | 6 | Rooting method for SCH-I545 specifically | **RESOLVED** | TBD — needs verification against exact build number | KingRoot 4.5.0 — not the originally-identified KingoRoot, whose one-click flow now fails with a JSON parse error against its live backend (a decade-old app calling a backend whose response format has since changed). KingRoot 4.5.0 is a different company despite the similar name, and is independently documented as working for this exact firmware. Executed during Phase 1 Step 7 — needed sooner than planned, to work around `adb run-as` being blocked (`ro.debuggable=0`) on this stock Samsung build. |
+| 7 | Fix export `OutOfMemoryError` on long rides | **OPEN** | (a) Materialize the full ride into a `List` before writing (current, broken) (b) Stream rows to disk as they're read | (b) — root-caused 2026-07-22: `MainActivity.exportMostRecentRide()` loads a ride's entire `sensor_readings` table into memory at once; ride 39's ~199k rows threw a real `OutOfMemoryError` (an `Error`, not caught by the existing `catch (Exception)`). Not yet implemented. |
 
 ---
 
