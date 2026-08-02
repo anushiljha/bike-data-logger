@@ -114,15 +114,25 @@ the separate future Phase 8.
 
 ---
 
-## Step 4 — Remove Organic Maps integration
+## Step 4 — Remove Organic Maps integration — done, verified 2026-08-02
 
-- [ ] Remove `btnNavigate` from `activity_main.xml` and its click listener
+- [x] Remove `btnNavigate` from `activity_main.xml` and its click listener
   from `MainActivity.onCreate()` (the `getLaunchIntentForPackage(
   "app.organicmaps")` code from Step 1). Full removal, not just hiding the
   button — matches this project's convention of deleting dead code rather
   than commenting it out (see the Step 15 light-sensor removal).
 - **Verify:** app builds and runs with no Navigate button; no leftover
   references to `app.organicmaps` anywhere in the app source.
+  - Confirmed: `grep -rn "organicmaps|btnNavigate|Navigate"` across
+    `app/src/main` returns no matches. `btnStopRide`'s
+    `layout_constraintBottom_toTopOf` re-pointed to `@id/btnQuery` to keep
+    the vertical button chain (`tvRideTimer` → `btnStartRide` →
+    `btnStopRide` → `btnQuery` → `btnExport`) connected after removing
+    `btnNavigate`. `AndroidManifest.xml` needed no change — no `<queries>`
+    block ever referenced `app.organicmaps`. `gradlew assembleDebug`
+    succeeds (built and confirmed clean before this change too, as a
+    baseline). Not yet installed/verified on the physical S4 — this step's
+    verify condition is build-level only, no on-device behavior changed.
 
 ## Step 5 — Live speed readout
 
