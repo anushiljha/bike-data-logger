@@ -114,13 +114,17 @@ the separate future Phase 8.
 
 ---
 
-## Step 4 — Remove Organic Maps integration — done, verified 2026-08-02
+## Step 4 — Remove Organic Maps integration — done, compile-verified 2026-08-02
 
-- [x] Remove `btnNavigate` from `activity_main.xml` and its click listener
-  from `MainActivity.onCreate()` (the `getLaunchIntentForPackage(
+- [x] Removed `btnNavigate` from `activity_main.xml` (re-chaining
+  `btnStopRide`'s constraint to `btnQuery`, closing the gap left in the
+  vertical button chain) and its click listener from
+  `MainActivity.onCreate()` (the `getLaunchIntentForPackage(
   "app.organicmaps")` code from Step 1). Full removal, not just hiding the
   button — matches this project's convention of deleting dead code rather
-  than commenting it out (see the Step 15 light-sensor removal).
+  than commenting it out (see the Step 15 light-sensor removal). Confirmed
+  no remaining `btnNavigate`/`app.organicmaps` references anywhere in
+  `app/`.
 - **Verify:** app builds and runs with no Navigate button; no leftover
   references to `app.organicmaps` anywhere in the app source.
   - Confirmed: `grep -rn "organicmaps|btnNavigate|Navigate"` across
@@ -203,14 +207,19 @@ the separate future Phase 8.
 
 ## Step 8 — Acquire local street data
 
-- [ ] **Resolved data source: a real OSM road-only extract, bounded to the
-  Lansing + East Lansing + Haslett + Okemos, MI area** (the bike's actual
-  operating range — confirmed it doesn't leave this region; genuinely new
-  areas outside it are out of scope by design, iPhone is the accepted
-  fallback there). This supersedes the earlier "just use historical
-  `gps_points`" idea, which only would have covered previously-ridden
-  streets — doesn't satisfy showing an outline in a place ridden for the
-  first time, which is the actual requirement.
+**PC-side extraction done 2026-07-26/27; on-device half (Room table, import,
+push to phone) still pending — phone unavailable for a while, see note
+below.**
+
+- [ ] **Resolved data source: a real OSM road-only extract, bounded to a
+  20-mile radius of home (6231 Gossard Ave)** — this is the actual defining
+  radius (corrected 2026-07-26 from an earlier "Lansing + East Lansing +
+  Haslett + Okemos" description, which was a reasonable-sounding
+  approximation but not the real rule; 20mi from home is what actually
+  bounds where the bike goes). This supersedes the earlier "just use
+  historical `gps_points`" idea, which only would have covered
+  previously-ridden streets — doesn't satisfy showing an outline in a place
+  ridden for the first time, which is the actual requirement.
   - **All the heavy work happens on the PC, not the S4** — matches this
     project's existing division of labor (the phone logs, the PC
     analyzes). Pull an OSM extract for the bounded region (Overpass API
@@ -238,12 +247,71 @@ the separate future Phase 8.
     covers *planned* trips (advance WiFi+USB access at home beforehand) —
     spontaneous travel outside the default region is still out of scope,
     same iPhone fallback as before.
-- **Verify:** the stored data covers the full Lansing/East Lansing/
-  Haslett/Okemos region (spot-check a few streets in each town by shape
-  against a reference like Google Maps, not just streets already ridden),
-  and the on-device storage footprint is reasonable for a region this size
-  (expect low tens of MB at most for road-only geometry — nowhere near
-  Organic Maps' full offline map package for the same area).
+- **Verify:** the stored data covers the full 20-mile radius (spot-check a
+  few streets by shape against a reference like Google Maps, not just
+  streets already ridden), and the on-device storage footprint is
+  reasonable for a region this size (expect low tens of MB at most for
+  road-only geometry — nowhere near Organic Maps' full offline map package
+  for the same area).
+  - **PC-side extraction — done 2026-07-26/27.** Geocoded the anchor point
+    (6231 Gossard Ave → ~42.7624, -84.4780) and the four town names via
+    Nominatim, then queried the Overpass API for every
+    `primary|secondary|tertiary|unclassified|residential|living_street|
+    track|cycleway|*_link` way inside a bounding box big enough to contain
+    the full 20-mile circle.
+  - **The main public Overpass instance (`overpass-api.de`) was down for
+    the entire session** — every request failed, including a trivial
+    single-way query, with a backend `Dispatcher_Client::
+    request_read_and_idx::timeout` error, confirming it wasn't our query
+    at fault. Tried several other public mirrors
+    (`overpass.kumi.systems`, `lz4.overpass-api.de`,
+    `overpass.private.coffee`, `overpass.nchc.org.tw`) — none responded
+    usefully. **`https://maps.mail.ru/osm/tools/overpass/api/interpreter`**
+    (Mail.ru's public mirror) worked and is what the extract was actually
+    pulled from.
+  - **A single request for the whole 20-mile bounding box timed out** even
+    on the working mirror — too much for one shot on a shared free server.
+    Fixed by splitting the box into a 5x5 grid (25 tiles, ~8x8.7mi each)
+    and fetching each tile separately with a 2s pause between requests;
+    one tile (over the dense Lansing/East Lansing core) still timed out at
+    that size and was split again into 4 smaller sub-tiles, which all
+    succeeded.
+  - **Merging required de-duplication**: a way that crosses a tile
+    boundary comes back in full in every tile that touches it, so the same
+    road appeared in more than one tile file. De-duped by OSM way id
+    before converting to segments (14,600 unique ways from 15,188 raw
+    records across the 28 tile files).
+  - **No Python available in this session** (same standing gap noted back
+    in Step 9's verification) — used Node.js instead for the merge/
+    dedupe/clip/CSV-write step, which is a one-off script, not part of the
+    app; doesn't change the project's Python/pandas analysis pipeline.
+  - **Circle-clipping:** the tiled fetch returns a square superset of the
+    real 20-mile circle (and Overpass doesn't clip a way's geometry to the
+    query box — it returns the full way if any point touches the box).
+    Fixed by computing haversine distance from home for both endpoints of
+    every consecutive-point segment and dropping any segment where neither
+    endpoint is within 20mi — this both trims the square down to a circle
+    and cuts long roads down to just the portion actually in range,
+    without needing real polygon-clipping math.
+  - **Result:** `map_data/street_segments.csv` (gitignored — generated
+    data, same convention as `/exports/`) — 143,745 segments, 5.76MB,
+    covering lat 42.4712–43.0531 / lon -84.8767–-84.0788, matching the
+    expected 20-mile extent almost exactly. Well under the "low tens of
+    MB" ceiling this step expected.
+  - **Coverage spot-check:** confirmed several expected named roads
+    present in the raw tile data before tags were dropped (Michigan
+    Avenue, Farm Lane, Hagadorn Road, Gossard Avenue itself, Okemos Road,
+    Haslett Road). One initial scare — "Grand River Avenue" showed zero
+    matches — turned out to be a false alarm: OSM tags it "East/North
+    Grand River Avenue", not a bare "Grand River Avenue", and it is
+    present (primary/tertiary tagged, 6 tile files). Also rendered the
+    full segment set as a simple SVG line plot (red dot at home) and sent
+    it for visual comparison against a real map — worth a second look
+    before treating this as fully verified.
+  - **Not yet done:** the on-device half (Room entity/DAO for line
+    segments, an import path that reads the pushed file, and the actual
+    `adb push` + import) — blocked on phone access. `map_data/
+    street_segments.csv` is ready to push whenever the phone's back.
 
 ## Step 9 — Render nearby streets
 
