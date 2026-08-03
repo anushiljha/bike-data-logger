@@ -7,11 +7,12 @@ import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
-@Database(entities = [GpsPoint::class, SensorReading::class, Ride::class], version = 4)
+@Database(entities = [GpsPoint::class, SensorReading::class, Ride::class, StreetSegment::class], version = 5)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun gpsPointDao(): GpsPointDao
     abstract fun sensorReadingDao(): SensorReadingDao
     abstract fun rideDao(): RideDao
+    abstract fun streetSegmentDao(): StreetSegmentDao
 
     companion object {
         @Volatile
@@ -48,13 +49,31 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // Brand-new table, no existing data to touch, so unlike MIGRATION_3_4
+                // this is just a plain CREATE TABLE, no rebuild-and-copy needed.
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS street_segments (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        lat1 REAL NOT NULL,
+                        lon1 REAL NOT NULL,
+                        lat2 REAL NOT NULL,
+                        lon2 REAL NOT NULL
+                    )
+                    """.trimIndent()
+                )
+            }
+        }
+
         fun getInstance(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
                     context.applicationContext,
                     AppDatabase::class.java,
                     "bike_data.db"
-                ).addMigrations(MIGRATION_3_4)
+                ).addMigrations(MIGRATION_3_4, MIGRATION_4_5)
                     .build().also { INSTANCE = it }
             }
         }
