@@ -62,6 +62,23 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+        findViewById<Button>(R.id.btnImportStreets).setOnClickListener {
+            lifecycleScope.launch {
+                Toast.makeText(this@MainActivity, "Importing street data…", Toast.LENGTH_SHORT).show()
+                try {
+                    val count = importStreetSegments()
+                    if (count < 0) {
+                        Toast.makeText(this@MainActivity, "No street data file found", Toast.LENGTH_LONG).show()
+                    } else {
+                        Toast.makeText(this@MainActivity, "Imported $count street segments", Toast.LENGTH_LONG).show()
+                    }
+                } catch (e: Exception) {
+                    Log.e("IMPORT", "street import failed", e)
+                    Toast.makeText(this@MainActivity, "Import failed: ${e.message}", Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+
         val permissionsNeeded = mutableListOf(
             Manifest.permission.ACCESS_FINE_LOCATION,
             Manifest.permission.ACCESS_COARSE_LOCATION
@@ -147,5 +164,41 @@ class MainActivity : AppCompatActivity() {
         Log.d("EXPORT", "Exported ride ${ride.id} to ${exportDir.path}")
         Toast.makeText(this, "Ride exported", Toast.LENGTH_SHORT).show()
         rideTimerText.text = "00:00"
+    }
+
+    private suspend fun importStreetSegments(): Int = withContext(Dispatchers.IO) {
+        val file = File(getExternalFilesDir(null), "map_data/street_segments.csv")
+        Log.d("IMPORT", "importing from ${file.absolutePath}, exists=${file.exists()}")
+        if (!file.exists()) {
+            return@withContext -1
+        }
+
+        var count = 0
+        val batch = mutableListOf<StreetSegment>()
+        file.bufferedReader().use { reader ->
+            reader.readLine() // header
+            var line = reader.readLine()
+            while (line != null) {
+                val parts = line.split(",")
+                batch.add(
+                    StreetSegment(
+                        lat1 = parts[0].toDouble(),
+                        lon1 = parts[1].toDouble(),
+                        lat2 = parts[2].toDouble(),
+                        lon2 = parts[3].toDouble()
+                    )
+                )
+                count++
+                if (batch.size >= 2000) {
+                    db.streetSegmentDao().insertAll(batch)
+                    batch.clear()
+                }
+                line = reader.readLine()
+            }
+        }
+        if (batch.isNotEmpty()) {
+            db.streetSegmentDao().insertAll(batch)
+        }
+        count
     }
 }

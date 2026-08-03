@@ -201,13 +201,9 @@ the separate future Phase 8.
   confirm the displayed number moves in the right direction and rough
   magnitude.
 
-## Step 8 — Acquire local street data
+## Step 8 — Acquire local street data — done, verified on the physical S4, 2026-08-02
 
-**PC-side extraction done 2026-07-26/27; on-device half (Room table, import,
-push to phone) still pending — phone unavailable for a while, see note
-below.**
-
-- [ ] **Resolved data source: a real OSM road-only extract, bounded to a
+- [x] **Resolved data source: a real OSM road-only extract, bounded to a
   20-mile radius of home (6231 Gossard Ave)** — this is the actual defining
   radius (corrected 2026-07-26 from an earlier "Lansing + East Lansing +
   Haslett + Okemos" description, which was a reasonable-sounding
@@ -304,10 +300,55 @@ below.**
     full segment set as a simple SVG line plot (red dot at home) and sent
     it for visual comparison against a real map — worth a second look
     before treating this as fully verified.
-  - **Not yet done:** the on-device half (Room entity/DAO for line
-    segments, an import path that reads the pushed file, and the actual
-    `adb push` + import) — blocked on phone access. `map_data/
-    street_segments.csv` is ready to push whenever the phone's back.
+  - **On-device half — done 2026-08-02.** New `StreetSegment(id, lat1, lon1,
+    lat2, lon2)` entity/table, no `rideId` foreign key (static reference
+    data, not per-ride) — `AppDatabase` bumped 4→5 via `MIGRATION_4_5`, a
+    plain `CREATE TABLE` since this is a brand-new table, not a rebuild of
+    an existing one like `MIGRATION_3_4`, so no risk to real ride history.
+    New "Import streets" button in `MainActivity` streams the CSV with a
+    `BufferedReader` and inserts in 2000-row batches (not one big `List` +
+    single insert) — a deliberate choice given the real `OutOfMemoryError`
+    a similarly-sized ~199,000-row `List` caused in Step 3's export
+    investigation on this same device.
+  - **Two real footguns hit getting the file onto the phone, both fixed:**
+    (1) `adb push` straight into the app's external files dir
+    (`/storage/emulated/0/Android/data/jhaanush.bikedevice/files/...`)
+    failed with "Read-only file system" — worked around the same way as
+    the Step 10 DB patches, by pushing to plain `/sdcard/` first, then
+    `su`-root `cp`-ing it into place. (2) That root `cp` initially left the
+    new `map_data/` folder owned `u0_a209:u0_a209`, matching the
+    convention documented for the **internal** `bike_data.db` path — but
+    external/FUSE storage (`getExternalFilesDir`) turns out to need
+    `media_rw:media_rw` instead (confirmed by comparing against the
+    existing `exports/` folder's real ownership), and the wrong ownership
+    made the entire `files/` directory invisible through the FUSE view,
+    not just the new folder — the app's own `File.exists()` check
+    (`false`) is what caught it, not a plain `adb shell ls` (which can't
+    see another app's `Android/data/<pkg>` folder either way on this
+    device, working or not, so it's not a useful diagnostic here). Fixed
+    by `chown -R media_rw:media_rw` + matching permission bits on
+    `map_data/`. **Worth remembering as a standing distinction on this
+    device:** internal app storage (`/data/data/.../databases/`) wants
+    `u0_a209:u0_a209`; external/FUSE app storage
+    (`Android/data/<pkg>/files/...`) wants `media_rw:media_rw`. Different
+    rules, easy to cross the streams.
+  - **Duplicate import caught and fixed.** The import button got tapped
+    twice in quick succession while waiting on the (genuinely slow, ~6+
+    min on this device's eMMC) first run — once via `adb input tap`, once
+    physically — so the table ended up with 287,490 rows, exactly 2×
+    expected. Confirmed via DB pull it was two clean, uncorrupted,
+    back-to-back full passes (ids 1–143745 and 143746–287490 pairwise
+    identical, not interleaved/corrupted), so the second half was safely
+    dropped (`DELETE FROM street_segments WHERE id > 143745`, then
+    `VACUUM`), patched back onto the device the same way Step 10's ride
+    bookkeeping fixes were (force-stop app, push corrected `.db` over the
+    original preserving `u0_a209:u0_a209` + deleting stale `-wal`/`-shm`).
+  - **Final on-device verification:** `street_segments` = 143,745 rows
+    (exact match to the PC-side extract), table's own on-disk footprint
+    (via `dbstat`) = ~6.1MB — comfortably under the "low tens of MB"
+    ceiling this step expected, consistent with the 5.76MB source CSV. All
+    39 existing `rides` rows and their sensor/GPS data confirmed untouched
+    by the migration. App relaunches cleanly post-patch, no crash.
 
 ## Step 9 — Render nearby streets
 
