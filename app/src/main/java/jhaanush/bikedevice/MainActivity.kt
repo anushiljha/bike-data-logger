@@ -25,6 +25,7 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var db: AppDatabase
     private lateinit var rideTimerText: TextView
+    private lateinit var speedText: TextView
     private var isRideActive = false
     private var timerJob: Job? = null
 
@@ -35,6 +36,7 @@ class MainActivity : AppCompatActivity() {
 
         db = AppDatabase.getInstance(this)
         rideTimerText = findViewById(R.id.tvRideTimer)
+        speedText = findViewById(R.id.tvSpeed)
 
         findViewById<Button>(R.id.btnStartRide).setOnClickListener {
             if (!isRideActive) startRide()
@@ -119,8 +121,20 @@ class MainActivity : AppCompatActivity() {
             while (true) {
                 val elapsedSeconds = (System.currentTimeMillis() - startTime) / 1000
                 rideTimerText.text = String.format("%02d:%02d", elapsedSeconds / 60, elapsedSeconds % 60)
+                updateSpeedDisplay()
                 delay(1000)
             }
+        }
+    }
+
+    private fun updateSpeedDisplay() {
+        val update = LoggingService.currentUpdate.value
+        val staleAfterMs = 2000L
+        if (update == null || System.currentTimeMillis() - update.timestampMs > staleAfterMs) {
+            speedText.text = "-- mph"
+        } else {
+            val mph = update.speedMps * 2.23694f
+            speedText.text = String.format("%.1f mph", mph)
         }
     }
 
@@ -129,6 +143,7 @@ class MainActivity : AppCompatActivity() {
         startService(intent)
         isRideActive = false
         timerJob?.cancel()
+        speedText.text = "-- mph"
     }
 
     private suspend fun exportMostRecentRide() {

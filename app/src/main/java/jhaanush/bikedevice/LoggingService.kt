@@ -23,7 +23,12 @@ import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+
+data class LiveLocationUpdate(val speedMps: Float, val timestampMs: Long)
 
 class LoggingService : LifecycleService(), SensorEventListener {
 
@@ -32,6 +37,10 @@ class LoggingService : LifecycleService(), SensorEventListener {
         const val ACTION_STOP = "jhaanush.bikedevice.STOP_RIDE"
         private const val CHANNEL_ID = "ride_logging"
         private const val NOTIFICATION_ID = 1
+        private const val GPS_ROW_WRITE_INTERVAL_MS = 5000L
+
+        private val _currentUpdate = MutableStateFlow<LiveLocationUpdate?>(null)
+        val currentUpdate: StateFlow<LiveLocationUpdate?> = _currentUpdate.asStateFlow()
     }
 
     private lateinit var sensorManager: SensorManager
@@ -46,6 +55,7 @@ class LoggingService : LifecycleService(), SensorEventListener {
     private val sensorBuffer = mutableListOf<SensorReading>()
     private var loggingJob: Job? = null
     private var locationCallback: LocationCallback? = null
+    private var lastGpsRowWriteMs = 0L
 
     override fun onCreate() {
         super.onCreate()
@@ -67,6 +77,8 @@ class LoggingService : LifecycleService(), SensorEventListener {
         }
 
         rideId = intent?.getLongExtra(EXTRA_RIDE_ID, -1) ?: -1
+        lastGpsRowWriteMs = 0L
+        _currentUpdate.value = null
         startForeground(NOTIFICATION_ID, buildNotification())
         accelerometer?.also { sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_GAME) }
         gyroscope?.also { sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_GAME) }
@@ -105,19 +117,28 @@ class LoggingService : LifecycleService(), SensorEventListener {
             != PackageManager.PERMISSION_GRANTED) {
             return
         }
-        val request = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 5000L).build()
+        val request = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 1000L).build()
         val callback = object : LocationCallback() {
             override fun onLocationResult(result: LocationResult) {
                 val location = result.lastLocation ?: return
-                lifecycleScope.launch {
-                    db.gpsPointDao().insert(
-                        GpsPoint(
-                            rideId = rideId,
-                            timestamp = System.currentTimeMillis(),
-                            lat = location.latitude,
-                            lon = location.longitude
+                val now = System.currentTimeMillis()
+
+                if (location.hasSpeed()) {
+                    _currentUpdate.value = LiveLocationUpdate(location.speed, now)
+                }
+
+                if (now - lastGpsRowWriteMs >= GPS_ROW_WRITE_INTERVAL_MS) {
+                    lastGpsRowWriteMs = now
+                    lifecycleScope.launch {
+                        db.gpsPointDao().insert(
+                            GpsPoint(
+                                rideId = rideId,
+                                timestamp = now,
+                                lat = location.latitude,
+                                lon = location.longitude
+                            )
                         )
-                    )
+                    }
                 }
             }
         }
@@ -137,6 +158,7 @@ class LoggingService : LifecycleService(), SensorEventListener {
         sensorManager.unregisterListener(this)
         locationCallback?.let { fusedLocationClient.removeLocationUpdates(it) }
         locationCallback = null
+        _currentUpdate.value = null
         val endedRideId = rideId
         lifecycleScope.launch {
             flushSensorBuffer()
