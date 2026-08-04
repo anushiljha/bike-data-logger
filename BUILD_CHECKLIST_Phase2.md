@@ -134,9 +134,9 @@ the separate future Phase 8.
     device access this session. Treat this step as code-complete, not
     verified, until it's actually launched on the phone.
 
-## Step 5 — Live speed readout
+## Step 5 — Live speed readout — code done, indoor-verified only, 2026-08-02
 
-- [ ] `LoggingService` already gets a `Location` on every GPS update
+- [x] `LoggingService` already gets a `Location` on every GPS update
   (`requestLocationUpdates`, since the Step 10 fix); `Location.getSpeed()`
   is sitting right there unused. Surface it to `MainActivity` live while a
   ride is active and show it as a plain number (mph or km/h, pick one) on
@@ -169,6 +169,29 @@ the separate future Phase 8.
   goes stale visibly during a real GPS gap instead of freezing silently,
   and roughly matches a known reference (e.g. walking pace, or
   cross-checked against the phone's other GPS-speed display).
+  - **Implementation:** `LoggingService` companion object holds a
+    `MutableStateFlow<LiveLocationUpdate?>` (speed + timestamp), written on
+    every `LocationCallback` delivery — no service binding needed, any
+    component can read `.value`. `MainActivity` reads it once a second off
+    the same tick loop that already drives `rideTimerText`, rather than
+    introducing a separate `Flow.collect` consumer, to stay close to the
+    existing code style. Location request interval dropped from 5s to 1s
+    for live-UI purposes, but a `lastGpsRowWriteMs` gate inside the
+    callback still only inserts a `gps_points` row every ~5s, so the
+    logged row cadence is unchanged. Stale threshold is a flat 2s (2x the
+    new 1Hz request interval). Units: mph (unasked-for default, given the
+    Michigan/US context — flag if km/h is actually wanted).
+  - **Partial — indoor smoke test only, no outdoor/moving verification
+    yet.** Installed and ride-tested on the physical S4 (ride 40, 80.1s):
+    Start Ride → speed correctly showed `--` throughout (no indoor GPS fix
+    ever arrived, consistent with every other indoor test in this
+    project) → Stop Ride cleanly reset it, no crash either side.
+    Confirmed no regression from the faster location polling: accelerometer
+    ran 7979 rows/80.1s ≈ 99.6Hz, matching the established indoor baseline
+    exactly; gyroscope/magnetometer/barometer counts all in line with
+    prior sessions. The actual "number moves with real speed and roughly
+    matches a reference" half of this verify condition needs a real
+    outdoor ride and is still open.
 
 ## Step 6 — Live odometer
 
